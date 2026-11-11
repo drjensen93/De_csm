@@ -9,7 +9,9 @@ Spillet er ren HTML, CSS og JavaScript uden build-trin og uden afhængigheder i 
 - **Lokalt:** åbn `index.html` i en browser.
 - **GitHub Pages:** Settings → Pages → Source: *Deploy from a branch* → `main` / `(root)`. Spillet ligger derefter på `https://<bruger>.github.io/<repo>/`.
 
-Spillet gemmes i browserens `localStorage` (nøglen `csm_save_v1`). Gemte spil hører til den adresse, spillet køres fra, så et spil gemt ét sted (fx i Claude-artefaktet eller lokalt) kan ikke åbnes et andet sted.
+Spillet gemmes i browserens `localStorage` (nøglen `csm_save_v1`). Gemte spil hører til den adresse og browser, spillet køres fra. Andre, der åbner siden, får deres eget spil og kan ikke se eller ændre dit.
+
+**Flyt eller sikkerhedskopiér et spil:** tryk *Eksport* i menuen → *Gem og lav eksport* → kopiér koden eller hent den som fil. Indlæs den samme sted under *Import* (fx på GitHub Pages, i en anden browser eller efter en opdatering, der gik galt). Import overskriver det spil, der er gemt på stedet.
 
 ## Struktur
 
@@ -59,6 +61,7 @@ Derfor skal filerne indlæses i den rækkefølge, de står i `index.html`. En ny
 | 20-standardtaktikker-2d | indlæsning af standardtaktikkerne i 2D |
 | 21-ai-personlighed | holdstil, innovatører/forfinere, pistol- og eco-lister |
 | 22-arkiv | arkiv over gamle taktikker |
+| 23-eksport-import | eksport og import af gemte spil |
 
 ## Tests
 

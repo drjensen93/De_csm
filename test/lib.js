@@ -6,7 +6,9 @@ async function loadGame({file=path.join(__dirname,'..','index.html'),seed=null}=
   vc.on('jsdomError',e=>errors.push(String(e.message||e).slice(0,300)));
   vc.on('error',(...a)=>errors.push(a.map(x=>String(x&&x.stack||x).split('\n')[0]).join(' ').slice(0,300)));
   const dom=await JSDOM.fromFile(file,{runScripts:'dangerously',resources:'usable',pretendToBeVisual:true,virtualConsole:vc,
-    beforeParse(w){if(seed!=null)w.Math.random=seeded(seed)}});
+    beforeParse(w){if(seed!=null)w.Math.random=seeded(seed);
+      // file://-sider har ikke localStorage i jsdom: brug et lager i hukommelsen, så gem/indlæs kan testes
+      const m=new Map();Object.defineProperty(w,'localStorage',{configurable:true,value:{getItem:k=>m.has(k)?m.get(k):null,setItem:(k,v)=>{m.set(k,String(v))},removeItem:k=>{m.delete(k)},clear:()=>m.clear(),key:i=>[...m.keys()][i]??null,get length(){return m.size}}})}});
   await new Promise(r=>dom.window.addEventListener('load',r));
   const w=dom.window;
   // Simuleringsopsætning: alle 16 hold i den valgte liga er AI-hold (dit eget hold flyttes til en liga, der ikke simuleres).
