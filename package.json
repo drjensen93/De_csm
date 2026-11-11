@@ -1,0 +1,14 @@
+{
+  "name": "de_csm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "de_csm – Counter-Strike-manager med 2D-kampmotor og AI-hold, der udvikler deres egne taktikker",
+  "scripts": {
+    "test": "node test/smoke.js",
+    "meta": "node test/meta.js",
+    "build": "node tools/build-single.js"
+  },
+  "devDependencies": {
+    "jsdom": "^31.0.0"
+  }
+}

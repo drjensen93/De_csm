@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>de_csm – Match Engine (2D)</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app"><div class="nav" id="nav"></div>
+<div class="w">
+<div class="top"><b id="ttl"></b><button id="nx">Næste kamp</button></div>
+<div id="lg"></div>
+<div id="tv" style="display:none"></div>
+<div id="ov" style="display:none"></div>
+<div id="cl" style="display:none"></div>
+<div id="tr" style="display:none"></div><div id="ty" style="display:none"></div><div id="ec" style="display:none"></div><div id="sp" style="display:none"></div><div id="fq" style="display:none"></div><div id="hf" style="display:none"></div><div id="tn" style="display:none"></div><div id="xf" style="display:none"></div><div id="hv" style="display:none"></div><div id="rk" style="display:none"></div>
+<div id="mv" style="display:none">
+<div class="hd"><div id="sc"></div><div id="clk"></div></div>
+<div id="feed"></div>
+<div class="bar"><button id="pb">Pause</button><button id="nm" disabled>Til ligaen</button></div>
+<div id="pl"></div>
+</div></div></div>
+<!-- Scripts indlæses i denne rækkefølge. Senere filer bygger videre på (og pakker funktioner ind fra) tidligere filer, så rækkefølgen må ikke ændres. -->
+<script src="js/01-grundlag.js"></script>
+<script src="js/02-zonemotor.js"></script>
+<script src="js/03-ui-taktik-liga.js"></script>
+<script src="js/04-ligaer-og-champions-league.js"></script>
+<script src="js/05-hold-traening-oekonomi.js"></script>
+<script src="js/06-specialiteter.js"></script>
+<script src="js/07-spillervaerdi-personligheder-navne.js"></script>
+<script src="js/08-ai-holdbygning-transfer-loen.js"></script>
+<script src="js/09-maps-og-zonekarakter.js"></script>
+<script src="js/10-ranking-teamplay-rapport.js"></script>
+<script src="js/11-agent-lancamp-flanker.js"></script>
+<script src="js/12-taktiklister-og-maps.js"></script>
+<script src="js/13-ui-media-vaaben.js"></script>
+<script src="js/14-indbakke-spillermodel-landshold.js"></script>
+<script src="js/15-taktik-og-map-justeringer.js"></script>
+<script src="js/16-ai-taktikbibliotek.js"></script>
+<script src="js/17-ui-og-map-finjustering.js"></script>
+<script src="js/18-inferno-finere-zoner.js"></script>
+<script src="js/engine/csm2d.js"></script>
+<script src="data/maps/dust2.js"></script>
+<script src="data/maps/inferno.js"></script>
+<script src="data/maps/aztec.js"></script>
+<script src="js/19-2d-motor-integration-og-ai.js"></script>
+<script src="data/std2d.js"></script>
+<script src="js/20-standardtaktikker-2d.js"></script>
+<script src="js/21-ai-personlighed.js"></script>
+<script src="js/22-arkiv.js"></script>
+</body>
+</html>

@@ -1,0 +1,407 @@
+/* de_csm 2D-motor – prototype v0
+   Ren logik uden DOM, så den kan køre både i siden og hurtigt i baggrunden.
+   Koordinater: kortpixel (0–1024). Gitter: MAP.cell px pr. felt. Tid: sekunder. */
+(function(root){
+'use strict';
+const CFG={
+  dt:0.25, turnRate:90, turnFight:180, roundTime:115, bombTime:40, plantTime:3.2, defuseTime:10,
+  speed:215,            // u/s med riffel
+  hp:100, reload:2,
+  heRadius:80, heDmg:70, heThrow:0.9, // HE: radius i px (ca. 350 u), maks. skade, kastetid
+  hearR:250,            // fodtrin høres inden for ca. 1.100 u
+  fov:40,               // halv synsvinkel i grader ved Awareness 0 (+0,24° pr. point)
+  syncMax:8,            // højeste ventetid ved et syncpoint (sek.)
+  maxPoints:8,          // højst 8 punkter pr. spiller
+  arrive:4              // px
+};
+// ---------- våben (fra den gamle motor) ----------
+// rate = skud pr. sek. · rec = rekyl · ap = rustningsgennemtrængning (standard 0,9) · hk = headshot dræber uden hjelm · fall/acc = SMG-afstandstab · d1 = ekstra forsinkelse før første skud (sek.)
+const SMGV={dmg:26,rate:7,rec:.75,fall:.45,acc:.4};
+const W={glock:{n:'Glock',c:'pistol',s:'T',ap:.6,dmg:23,mag:20,mags:6,rate:3.2,rec:.4},p2000:{n:'P2000',c:'pistol',s:'CT',ap:.6,dmg:25,mag:13,mags:4,rate:2.6,rec:.4},deagle:{n:'Desert Eagle',c:'pistol',dmg:55,mag:7,mags:5,rate:2,rec:1.8,hs1:1.5},
+ ak47:{n:'AK-47',c:'rifle',s:'T',hk:1,dmg:40,mag:30,mags:3,rate:5,rec:1},m4a4:{n:'M4A4',c:'rifle',s:'CT',hk:1,dmg:38,mag:30,mags:3,rate:5,rec:.9},galil:{n:'Galil',c:'rifle',s:'T',hk:1,dmg:34,mag:35,mags:3,rate:5,rec:1},famas:{n:'FAMAS',c:'rifle',s:'CT',hk:1,dmg:30,mag:25,mags:4,rate:5,rec:.85},
+ smg:{n:'SMG',c:'smg',dmg:SMGV.dmg,mag:30,mags:4,rate:SMGV.rate,rec:SMGV.rec,fall:SMGV.fall,acc:SMGV.acc},sniper:{n:'AWP',c:'sniper',d1:.25,dmg:115,mag:5,mags:4,rate:.8333,rec:0}};
+const PRICE={deagle:700,smg:1250,galil:1800,famas:2000,ak47:2700,m4a4:2900,sniper:5000,he:300,kevlar:500,helm:300};
+const SIDEW={T:{R1:'ak47',R2:'galil',P:'glock'},CT:{R1:'m4a4',R2:'famas',P:'p2000'}};
+const ECON={win:3250,loss:[1400,1900,2400,2900,3400],kill:300,start:800,max:16000,half:12,rounds:24};
+const PR=[['sniper',1,1,1],['R1',1,1,1],['sniper',1,1,0],['R1',1,1,0],['sniper',1,0,0],['R1',1,0,0],['R2',1,1,1],['R2',1,1,0],['R2',1,0,0],['R1',0,0,1],['R1',0,0,0],['R2',0,0,1],['R2',0,0,0],['smg',1,1,0],['smg',1,0,0]];
+const mkGun=t=>t?{type:t,mag:W[t].mag,res:W[t].mag*W[t].mags}:null;
+const hsD=(w,t,b)=>t.helm?b*1.5:w.hk?Math.max(b*2.5,100):b*2.5;
+
+// ---------- tilfældighed med frø (så runder kan gentages) ----------
+function rng(seed){let a=seed>>>0;return()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296}}
+
+// ---------- kort ----------
+function parseRows(rows){const out=[];for(const r of rows)for(const tok of r.split(' ')){const[v,n]=tok.split('*');for(let i=0;i<(n?+n:1);i++)out.push(v)}return out}
+function makeMap(J){
+  const W=J.cols,H=J.rows,C=J.cell,cells=parseRows(J.grid);
+  const walk=new Uint8Array(W*H);for(let i=0;i<W*H;i++)walk[i]=cells[i]!=='#'?1:0;
+  const height=new Uint8Array(W*H);(J.height||[]).forEach((r,y)=>{for(let x=0;x<W;x++){const c=r[x];height[y*W+x]=c>='0'&&c<='9'?+c:0}});
+  const M={J,W,H,C,cells,walk,height,upx:J.meta.unitsPerPx,pathCache:new Map()};
+  // krydsninger: to lag oven på hinanden (fx CT-spawn-tunnelen under Short). Vandret = nederste lag, lodret = øverste lag. Man kan ikke dreje inde i feltet.
+  M.cross=new Uint8Array(W*H);M.crossIx=new Int16Array(W*H).fill(-1);M.lowAx=new Uint8Array(W*H).fill(J.lowLayer||1);/* nederste lags akse pr. krydsning (c.low), ellers mappets lowLayer */for(const[ci,c]of(J.crossings||[]).entries()){const[x0,y0,x1,y1]=c.rect;for(let y=Math.floor(y0/C);y<=Math.floor(y1/C);y++)for(let x=Math.floor(x0/C);x<=Math.floor(x1/C);x++)if(x>=0&&y>=0&&x<W&&y<H&&walk[y*W+x]){M.cross[y*W+x]=c.open?2:1;M.crossIx[y*W+x]=ci;if(c.low)M.lowAx[y*W+x]=c.low}}
+  M.hasCross=M.cross.some(v=>v);
+  M.cliff=J.cliff||0;// kanter: man kan ikke gå mellem nabofelter med så mange højdetrin imellem
+  // balkoner o.l.: strengere grænse i bestemte felter (man kan se og skyde ud over kanten, men ikke gå ned)
+  M.cliffT=new Uint8Array(W*H).fill(M.cliff||99);for(const L of J.ledges||[]){const[x0,y0,x1,y1]=L.rect;for(let y=Math.floor(y0/C);y<=Math.floor(y1/C);y++)for(let x=Math.floor(x0/C);x<=Math.floor(x1/C);x++)if(x>=0&&y>=0&&x<W&&y<H)M.cliffT[y*W+x]=Math.min(M.cliffT[y*W+x],L.cliff||2)}
+  if(!M.cliff&&(J.ledges||[]).length)M.cliff=99;
+  // trapper: ingen kant-regel i feltet
+  for(const L of J.stairs||[]){const[x0,y0,x1,y1]=L.rect;for(let y=Math.floor(y0/C);y<=Math.floor(y1/C);y++)for(let x=Math.floor(x0/C);x<=Math.floor(x1/C);x++)if(x>=0&&y>=0&&x<W&&y<H)M.cliffT[y*W+x]=99}
+  M.ok=(x,y)=>x>=0&&y>=0&&x<W&&y<H&&walk[y*W+x]===1;
+  M.cellOf=(px,py)=>[Math.min(W-1,Math.max(0,Math.floor(px/C))),Math.min(H-1,Math.max(0,Math.floor(py/C)))];
+  M.areaAt=(px,py)=>{const[x,y]=M.cellOf(px,py);return cells[y*W+x]};
+  M.siteAt=(px,py)=>{for(const s in J.sites){const r=J.sites[s].rect;if(px>=r[0]&&px<=r[2]&&py>=r[1]&&py<=r[3])return s}return null};
+  M.siteRegion=(px,py)=>{const a=M.areaAt(px,py);return a&&J.areas[a]?J.areas[a].site:null};
+  M.nearestWalk=(cx,cy)=>{if(M.ok(cx,cy))return[cx,cy];for(let r=1;r<10;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++)if(M.ok(cx+dx,cy+dy))return[cx+dx,cy+dy];return[cx,cy]};
+  return M;
+}
+const NB=[[1,0,1],[-1,0,1],[0,1,1],[0,-1,1],[1,1,Math.SQRT2],[1,-1,Math.SQRT2],[-1,1,Math.SQRT2],[-1,-1,Math.SQRT2]];
+function astar(M,sx,sy,tx,ty,L0){
+  /* L0: lag i en krydsning (1 vandret, 2 lodret); ukendt = øverste lag */
+  const s00=sy*M.W+sx,Ls=M.cross[s00]?(L0===1||L0===2?L0:3-M.lowAx[s00]):0;
+  const key=((sy*M.W+sx)*65536+(ty*M.W+tx))*4+Ls;const hit=M.pathCache.get(key);if(hit!==undefined)return hit;
+  const W=M.W,N=W*M.H,X=M.cross,S=N*3;
+  // arrays genbruges mellem kald (stempel i stedet for at nulstille)
+  if(!M._g){M._g=new Float32Array(S);M._from=new Int32Array(S);M._st=new Uint32Array(S);M._cl=new Uint32Array(S);M._gen=0;M._hf=[];M._hi=[]}
+  const g=M._g,from=M._from,stp=M._st,cl=M._cl,gen=++M._gen,hf=M._hf,hi=M._hi;hf.length=0;hi.length=0;
+  const push=(f,i)=>{hf.push(f);hi.push(i);let k=hf.length-1;while(k>0){const p=(k-1)>>1;if(hf[p]<=hf[k])break;const a=hf[p];hf[p]=hf[k];hf[k]=a;const b=hi[p];hi[p]=hi[k];hi[k]=b;k=p}};
+  const pop=()=>{const top=hi[0],lf=hf.pop(),li=hi.pop();if(hf.length){hf[0]=lf;hi[0]=li;let k=0;const n=hf.length;for(;;){const l=2*k+1,r=l+1;let m=k;if(l<n&&hf[l]<hf[m])m=l;if(r<n&&hf[r]<hf[m])m=r;if(m===k)break;const a=hf[m];hf[m]=hf[k];hf[k]=a;const b=hi[m];hi[m]=hi[k];hi[k]=b;k=m}}return top};
+  const h=(x,y)=>{const dx=x>tx?x-tx:tx-x,dy=y>ty?y-ty:ty-y;return dx>dy?dx+0.4142*dy:dy+0.4142*dx};
+  const ok=M.walk,H=M.H;const okc=(x,y)=>x>=0&&y>=0&&x<W&&y<H&&ok[y*W+x]===1;
+  const s0=sy*W+sx,t=ty*W+tx,st0=s0*3+Ls;g[st0]=0;stp[st0]=gen;from[st0]=-1;push(h(sx,sy),st0);let end=-1;
+  while(hf.length){const st=pop();if(cl[st]===gen)continue;cl[st]=gen;const i=(st/3)|0,m=st%3;if(i===t){end=st;break}const x=i%W,y=(i/W)|0,gi=g[st];
+    for(let q=0;q<8;q++){const d=NB[q],dx=d[0],dy=d[1],w=d[2],nx=x+dx,ny=y+dy;if(!okc(nx,ny))continue;if(dx&&dy&&!(okc(x+dx,y)&&okc(x,y+dy)))continue;const j=ny*W+nx;
+      if(M.cliff){const T=M.cliffT,low=(X[i]||X[j])&&!(dx&&dy)&&(dx?1:2)===M.lowAx[X[i]?i:j]&&M.J.lowLayerH!=null;
+        if(low){/* krydsning: nederste lag (fx vandet under Catwalk) har sin egen højde */const LH=M.J.lowLayerH,a=X[i]?LH:M.height[i],b=X[j]?LH:M.height[j];if(Math.abs(a-b)>=Math.min(T[i],T[j]))continue}
+        else{const hc=M.height[i],ti=T[i];if(Math.abs(M.height[j]-hc)>=Math.min(ti,T[j]))continue;if(dx&&dy){const a=y*W+x+dx,b=(y+dy)*W+x;if(Math.abs(M.height[a]-hc)>=Math.min(ti,T[a])||Math.abs(M.height[b]-hc)>=Math.min(ti,T[b]))continue}}}
+      let nm=0;if(X[i]||X[j]){if(dx&&dy)continue;const ax=dx?1:2;if(X[i]&&m&&m!==ax)continue;if(X[j])nm=ax}
+      const sj=j*3+nm,ng=gi+w;if(stp[sj]!==gen||ng<g[sj]){stp[sj]=gen;g[sj]=ng;from[sj]=st;push(ng+h(nx,ny),sj)}}}
+  let res=null;if(end>=0){const p=[];for(let k=end;k!==-1;k=from[k])p.push((k/3)|0);p.reverse();res=smooth(M,p)}
+  if(M.pathCache.size>20000)M.pathCache.clear();M.pathCache.set(key,res);return res;
+}
+// genvej: spring mellemfelter over, når der er fri bane (fremad-søgning, så det ikke bliver kvadratisk)
+function smooth(M,p){const W=M.W,out=[p[0]];let i=0;while(i<p.length-1){let j=i+1;const ax=p[i]%W,ay=(p[i]/W)|0;
+    while(j+1<p.length&&j-i<40&&losCells(M,ax,ay,p[j+1]%W,(p[j+1]/W)|0,true))j++;out.push(p[j]);i=j}
+  return out.map(c=>[(c%W)*M.C+M.C/2,((c/W)|0)*M.C+M.C/2])}
+// sigtelinje i gitteret (supercover). strict: også ingen hjørner (bruges til gang)
+function losCells(M,ax,ay,bx,by,strict){let x=ax,y=ay,pi=ay*M.W+ax;const dx=Math.abs(bx-ax),dy=Math.abs(by-ay),sx=bx>ax?1:-1,sy=by>ay?1:-1;let ix=0,iy=0;
+  while(ix<dx||iy<dy){const a=(0.5+ix)/dx,b=(0.5+iy)/dy;
+    if(dx&&(!dy||a<b)){x+=sx;ix++}else if(dy&&(!dx||b<a)){y+=sy;iy++}else{if(!M.ok(x+sx,y)||!M.ok(x,y+sy))return false;x+=sx;y+=sy;ix++;iy++}
+    if(!M.ok(x,y))return false;
+    if(strict&&M.cross&&M.cross[y*M.W+x])return false;
+    if(strict&&M.cliff){const ci=y*M.W+x;if(Math.abs(M.height[ci]-M.height[pi])>=Math.min(M.cliffT[ci],M.cliffT[pi]))return false;pi=ci}}
+  return true}
+
+// ---------- hold og taktikker ----------
+const SK=['aim','handling','iq','quick','aware','det','calm','pat','pos','team'];
+function randomTeam(r,side,base){const N=side==='T'?['Kaxro','Zeno','Rovi','Mofe','Trisk']:['Nyba','Draxl','Felu','Skoro','Bavi'];
+  return N.map(n=>{const s={};for(const k of SK)s[k]=Math.round(Math.max(30,Math.min(98,base+(r()*2-1)*14)));return{name:n,sk:s}})}
+const way=(x,y,dir)=>({t:'way',x,y,dir}),sync=(x,y,dir)=>({t:'sync',x,y,dir}),wait=(x,y,dir)=>({t:'wait',x,y,dir});
+const TACT={
+ T:{
+  'B-rush med sync i Upper tunnels':{site:'B',bomb:0,routes:[
+    [way(185,690),way(200,470),sync(118,420,[112,320]),way(112,320),way(185,160)],
+    [way(170,700),way(190,480),sync(100,440,[112,320]),way(108,330),way(150,230)],
+    [way(195,680),way(210,470),sync(135,440,[112,320]),way(115,315),way(210,250)],
+    [way(165,690),way(180,490),sync(90,420,[112,320]),way(110,330),way(125,175)],
+    [way(205,700),way(230,470),sync(150,450,[300,410]),way(118,330),way(215,130)]]},
+  'A-split: Long + Catwalk':{site:'A',bomb:0,routes:[
+    [way(640,745),sync(706,660,[712,590]),way(790,520),way(885,400),way(815,175)],
+    [way(630,760),sync(712,672,[712,590]),way(800,530),way(890,420),way(860,190)],
+    [way(650,730),sync(700,676,[712,590]),way(780,515),way(880,380),way(900,170)],
+    [way(470,690),way(470,580),sync(520,500,[520,400]),way(600,405),way(648,300),way(720,180)],
+    [way(460,700),way(465,590),sync(518,520,[470,420]),way(590,410),way(645,320),way(690,240)]]},
+  'Long-bait: entry venter på Long (waitpoint)':{site:'A',bomb:1,routes:[
+    [way(640,745),way(712,600),wait(790,520,[880,380])],
+    [way(630,760),way(705,668),way(790,520),way(885,400),way(815,175)],
+    [way(650,730),way(700,676),way(790,525),way(880,380),way(870,200)],
+    [way(470,690),way(470,580),way(518,520),way(600,405),way(648,300),way(720,180)],
+    [way(185,690),way(200,470,[112,330])]]}
+ },
+ CT:{
+  'Standard 2-1-2':{routes:[
+    [way(860,215,[885,450])],[way(700,235,[648,340])],[way(462,300,[470,600])],[way(160,165,[112,330])],[way(250,250,[112,330])]]},
+  'B-stak 1-1-3':{routes:[
+    [way(860,215,[885,450])],[way(462,300,[470,600])],[way(160,165,[112,330])],[way(250,250,[112,330])],[way(200,120,[112,330])]]},
+  'Long-push':{routes:[
+    [way(790,520,[712,600])],[way(800,505,[712,600])],[way(700,235,[648,340])],[way(462,300,[470,600])],[way(160,165,[112,330])]]}
+ }
+};
+
+// ---------- runde ----------
+function newRound(M,opt){
+  const r=rng(opt.seed||1);const J=M.J;
+  const teams={T:opt.teamT||randomTeam(r,'T',opt.baseT||70),CT:opt.teamCT||randomTeam(r,'CT',opt.baseCT||70)};
+  const tt=opt.routes?{site:opt.site,bomb:opt.bomb,routes:opt.routes.T}:TACT.T[opt.tTac],ct=opt.routes?{routes:opt.routes.CT}:TACT.CT[opt.ctTac];
+  S_=opt.skill||((p,k)=>p.sk[k]);
+  const P=[];
+  // spawn: 5 tilfældige punkter fra kortets spawnPool (ca. 10 pr. side); taktik-byggerens afspilning bruger de faste spawns
+  const SPW={};{const rs=rng(((opt.seed||1)*7919+13)>>>0);for(const s of['T','CT']){const pool=J.spawnPool&&J.spawnPool[s];
+    if(opt.fixedSpawns||!pool||pool.length<5){SPW[s]=J.spawns[s];continue}const p=pool.slice();for(let i=p.length-1;i>0;i--){const j=Math.floor(rs()*(i+1));[p[i],p[j]]=[p[j],p[i]]}SPW[s]=p.slice(0,5)}}
+  for(const side of['T','CT']){const tac=side==='T'?tt:ct;teams[side].forEach((pl,k)=>{const sp=SPW[side][k];
+    P.push({id:P.length,side,k,name:pl.name,sk:pl.sk,x:sp[0],y:sp[1],px:sp[0],py:sp[1],hp:CFG.hp,armor:100,alive:true,
+      route:tac.routes[k].map(o=>({...o})),ri:0,path:null,pi:0,face:side==='T'?-Math.PI/2:Math.PI/2,
+      seen:{},target:null,readyAt:0,row:0,lastShot:-9,shotAcc:0,reloadUntil:0,heard:null,heT:0,
+      ...loadout(opt,side,k),hurtAt:-9,still:0,arrivedAt:null,
+      syncSince:null,layer:0,bomb:side==='T'&&k===tac.bomb,ref:pl.ref||null,dmgBy:{},swing:null,duel0:null,kills:0,goal:null,mode:'route'})})}
+  const R={M,r,P,t:0,site:tt.site,opt,events:[],planted:false,bomb:null,bombLeft:0,plant:null,defuse:null,over:false,winner:null,why:'',
+    feed:[],tracers:[],nades:[],booms:[],call:null,waitH:{T:[],CT:[]},dropped:null,stats:{shots:0,hits:0}};
+  /* waitpoints: pr. side, flere tilladt; waitHolder = første levende (bruges af byggerens visning) */
+  Object.defineProperty(R,'waitHolder',{get(){return R.waitH.T.concat(R.waitH.CT).find(h=>h.alive)||null},set(v){},enumerable:false});
+  return R;
+}
+function loadout(opt,side,k){const L=opt.loadout&&opt.loadout[side]&&opt.loadout[side][k];
+  if(L)return{gun:L.gun?mkGun(L.gun):null,pis:mkGun(L.pis||SIDEW[side].P),armor:L.armor||0,helm:!!L.helm,he:L.he?1:0,hp:CFG.hp};
+  return{gun:mkGun(k===0&&side==='CT'?'sniper':SIDEW[side].R1),pis:mkGun(SIDEW[side].P),armor:100,helm:true,he:1,hp:CFG.hp}}
+let S_=(p,k)=>p.sk[k];
+const isMoving=(R,p)=>R.t-(p.mvT??-9)<=CFG.dt*1.5;
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+const angTo=(a,bx,by)=>Math.atan2(by-a.y,bx-a.x);
+const angDiff=(a,b)=>{let d=a-b;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return Math.abs(d)};
+
+function cellIdx(M,p){let x=Math.floor(p.x/M.C),y=Math.floor(p.y/M.C);if(x<0)x=0;else if(x>=M.W)x=M.W-1;if(y<0)y=0;else if(y>=M.H)y=M.H-1;return y*M.W+x}
+function crossThrough(M,ax,ay,bx,by){const dx=Math.abs(bx-ax),dy=Math.abs(by-ay);if(Math.min(dx,dy)<=0.5*Math.max(dx,dy))return false;const n=Math.max(dx,dy);
+  const op=M.cross[ay*M.W+ax]===2||M.cross[by*M.W+bx]===2;/* åben bro/catwalk: sigt fra dækket og ned i vandet (og omvendt) */
+  for(let k=1;k<n;k++){const cx=Math.round(ax+(bx-ax)*k/n),cy=Math.round(ay+(by-ay)*k/n),c=M.cross[cy*M.W+cx];if(c&&!(op&&c===2))return true}return false}
+/* åbent dæk med "see": man ser kun ned i vandet på den side (fx Catwalk: kun nord) */
+function deckSide(M,i,j){const c=(M.J.crossings||[])[M.crossIx[i]];if(!c||!c.see)return true;const C=M.C,W=M.W,x=j%W,y=(j/W)|0,[x0,y0,x1,y1]=c.rect.map(v=>Math.floor(v/C));
+  return c.see==='N'?y<y0:c.see==='S'?y>y1:c.see==='W'?x<x0:x>x1}
+/* fra et åbent dæk (øverste lag): andre krydsninger skjuler det bag sig, og "hide"-områder kan ikke ses */
+function deckBlock(M,i,j){const c=(M.J.crossings||[])[M.crossIx[i]];if(!c)return false;if(c.hide&&c.hide.includes(M.cells[j]))return true;
+  const W=M.W,ax=i%W,ay=(i/W)|0,bx=j%W,by=(j/W)|0,n=Math.max(Math.abs(bx-ax),Math.abs(by-ay));
+  for(let k=1;k<n;k++){const ci=Math.round(ay+(by-ay)*k/n)*W+Math.round(ax+(bx-ax)*k/n);if(M.cross[ci]&&M.crossIx[ci]!==M.crossIx[i])return true}return false}
+function canSee(R,a,b){const M=R.M;const i=a.ci,j=b.ci;if(i===j)return!(M.cross[i]&&a.layer&&b.layer&&a.layer!==b.layer);
+  // sigt-cache: hashtabel i typede arrays (hurtigere end Map). Kollisioner overskriver bare.
+  if(!M.losK){M.losK=new Int32Array(1<<20).fill(-1);M.losV=new Uint8Array(1<<20)}
+  const key=i<j?i*16384+j:j*16384+i,hk=(Math.imul(key,0x9E3779B1)>>>12)&0xFFFFF;let v;
+  if(M.losK[hk]===key)v=M.losV[hk]===1;else{const W=M.W,ax=i%W,ay=(i/W)|0,bx=j%W,by=(j/W)|0;v=losCells(M,ax,ay,bx,by,false)&&!(M.hasCross&&crossThrough(M,ax,ay,bx,by));M.losK[hk]=key;M.losV[hk]=v?1:0}
+  if(!v)return false;
+  if(M.hasCross&&(M.cross[i]||M.cross[j])){const W=M.W,dx=Math.abs(j%W-i%W),dy=Math.abs(((j/W)|0)-((i/W)|0)),axis=dx>=dy?1:2;
+    const La=M.cross[i]?(a.layer||3-M.lowAx[i]):0,Lb=M.cross[j]?(b.layer||3-M.lowAx[j]):0;
+    if(La&&Lb&&La!==Lb)return false;/* dækket skjuler den, der står lige under */
+    if(La&&M.cross[i]===2&&La!==M.lowAx[i]&&deckBlock(M,i,j))return false;if(Lb&&M.cross[j]===2&&Lb!==M.lowAx[j]&&deckBlock(M,j,i))return false;
+    {const LH=M.J.lowLayerH;/* dæk med "see": vandet på de andre sider kan ikke ses (heller ikke på skrå) */
+     if(La&&!Lb&&La!==M.lowAx[i]&&LH!=null&&Math.abs(M.height[j]-LH)<=1&&!deckSide(M,i,j))return false;
+     if(Lb&&!La&&Lb!==M.lowAx[j]&&LH!=null&&Math.abs(M.height[i]-LH)<=1&&!deckSide(M,j,i))return false}
+    /* åben bro/catwalk (cross=2): fra dækket ser man til alle sider ned i vandet; under dækket kun langs vandet */
+    if(La&&La!==axis&&!(M.cross[i]===2&&La!==M.lowAx[i]&&!Lb&&deckSide(M,i,j)))return false;if(Lb&&Lb!==axis&&!(M.cross[j]===2&&Lb!==M.lowAx[j]&&!La&&deckSide(M,j,i)))return false}
+  /* sigt langs det nederste lag gennem en krydsning: et endepunkt uden for krydsningen skal ligge i det nederste lags højde (fx ikke fra Short ned gennem tunnelen) */
+  if(M.hasCross&&M.J.lowLayerH!=null){const W=M.W,ax=i%W,ay=(i/W)|0,bx=j%W,by=(j/W)|0,dx=Math.abs(bx-ax),dy=Math.abs(by-ay),axis=dx>=dy?1:2;
+    {const n=Math.max(dx,dy);let thr=false;for(let k=1;k<n;k++){const cx=Math.round(ax+(bx-ax)*k/n),cy=Math.round(ay+(by-ay)*k/n),ci=cy*W+cx;if(M.cross[ci]&&M.lowAx[ci]===axis){thr=true;break}}
+      if(thr){const LH=M.J.lowLayerH;if(!M.cross[i]&&Math.abs(M.height[i]-LH)>2)return false;if(!M.cross[j]&&Math.abs(M.height[j]-LH)>2)return false}}}
+  return true}
+
+
+function setGoal(R,p,x,y){const M=R.M;const ox=x,oy=y;const[sx,sy]=M.nearestWalk(...M.cellOf(p.x,p.y)),[tx,ty]=M.nearestWalk(...M.cellOf(x,y));
+  {const[cx,cy]=M.cellOf(x,y);if(!M.ok(cx,cy)){x=tx*M.C+M.C/2;y=ty*M.C+M.C/2}}// mål inde i en væg/kasse: brug nærmeste gulvfelt
+  const path=astar(M,sx,sy,tx,ty,p.layer);p.path=path?path.slice(1).concat([[x,y]]):[[x,y]];p.pi=0;p.goal=[ox,oy]}
+
+function teamOf(R,s){const c=R._tc;if(c&&c.t===R.t)return c[s]||(c[s]=R.P.filter(p=>p.side===s&&p.alive));R._tc={t:R.t,v:R._ver};return R._tc[s]=R.P.filter(p=>p.side===s&&p.alive)}
+function syncReady(R,p){// alle levende holdkammerater med et syncpoint nr. k står i det → tidspunktet, hvor den sidste kom frem (ellers false)
+  /* sync-grupper: et syncpoint venter kun på syncpoints i samme gruppe (g); nummereringen tælles inden for gruppen */
+  const g=p.route[p.ri].g||0,k=p.route.slice(0,p.ri+1).filter(o=>o.t==='sync'&&(o.g||0)===g).length;let last=p.arrivedAt||R.t;
+  for(const q of teamOf(R,p.side)){if(q===p)continue;let n=0,idx=-1;for(let i=0;i<q.route.length;i++)if(q.route[i].t==='sync'&&(q.route[i].g||0)===g&&++n===k){idx=i;break}
+    if(idx<0)continue;if(q.ri<idx)return false;if(q.ri===idx){if(!q.arrivedAt)return false;last=Math.max(last,q.arrivedAt)}}
+  return last}
+
+function step(R){
+  if(R.over)return;const M=R.M,dt=CFG.dt,r=R.r;R.t+=dt;
+  if(R.opt.preview){// forhåndsvisning i taktik-byggeren: kun bevægelse, ingen modstandere
+    for(const p of R.P){p.px=p.x;p.py=p.y}for(const p of R.P)if(p.alive&&p.side===R.opt.preview){move(R,p);turn(p,dt)}
+    if(R.plant&&(R.plant.left-=dt)<=0){R.planted=true;R.bombLeft=CFG.bombTime;R.bomb={x:R.plant.p.x,y:R.plant.p.y,site:M.siteAt(R.plant.p.x,R.plant.p.y)};R.plant.p.bomb=false;R.plant=null}
+    if(R.t>=CFG.roundTime)end(R,'CT','Tiden løb ud');return}
+  const P=R.P,alive=P.filter(p=>p.alive);
+  for(const p of P){p.px=p.x;p.py=p.y;p.ci=cellIdx(M,p)}
+  if(R.tracers.length)R.tracers=R.tracers.filter(t=>R.t-t.t<0.3);
+
+  // 1) syn og opdagelse
+  for(const p of alive){
+    const fov=(CFG.fov+0.24*S_(p,'aware'))*Math.PI/180;p.fovA=fov;
+    for(const e of alive){if(e.side===p.side)continue;
+      const dx=p.x-e.x,dy=p.y-e.y,d2=dx*dx+dy*dy,lim=64*M.C;const vis=d2<lim*lim&&canSee(R,p,e);const s=p.seen[e.id];const d=vis||!s?Math.sqrt(d2)/M.C:0;
+      if(!vis){if(s&&R.t-s.last>1.0)delete p.seen[e.id];else if(s)s.vis=false;continue}
+      if(s){s.vis=true;s.last=R.t;continue}
+      const inF=angDiff(p.face,angTo(p,e.x,e.y))<fov;
+      const moving=isMoving(R,e);
+      let delay=inF?0.12+(100-S_(p,'aware'))/100*0.45:(d<22&&moving?0.5+(100-S_(p,'aware'))/100*1.1:99);
+      // Playing IQ: står fjenden der, hvor man forventede (holdretning), ser man ham hurtigere
+      if(inF&&p.holdDir!=null&&angDiff(p.holdDir,angTo(p,e.x,e.y))<0.35)delay*=1-0.4*S_(p,'iq')/100;
+      else if(inF&&p.heard&&R.t-p.heard.t<2.5&&angDiff(angTo(p,p.heard.x,p.heard.y),angTo(p,e.x,e.y))<0.45)delay*=0.7;
+      if(delay<50)p.seen[e.id]={at:R.t+delay,last:R.t,vis:true};
+    }
+  }
+  // lyd: fodtrin høres gennem vægge. Awareness afgør, om man opfanger dem; en spiller, der holder stille, vender sig mod lyden
+  if(((R.t/dt)|0)%2===0)for(const p of alive){if(p.fighting)continue;
+    for(const e of alive){if(e.side===p.side)continue;const ex=p.x-e.x,ey=p.y-e.y;if(ex*ex+ey*ey>CFG.hearR*CFG.hearR)continue;if(!isMoving(R,e))continue;const d=Math.sqrt(ex*ex+ey*ey);
+      if(p.seen[e.id]&&p.seen[e.id].vis)continue;
+      if(r()<S_(p,'aware')/100*0.6*dt*2*(1-d/CFG.hearR*0.6)){p.heard={x:e.x,y:e.y,t:R.t};break}}}
+  // 2) beslutninger og skud
+  const hits=[];
+  for(const p of alive){
+    const vis=[];for(const e of alive){if(e.side===p.side)continue;const q=p.seen[e.id];if(q&&q.vis&&R.t>=q.at)vis.push(e)}
+    if(vis.length){
+      // mål: den nærmeste; Teamplay: drabsmanden på en holdkammerat går forud
+      let tg=vis.reduce((a,b)=>dist(p,a)<dist(p,b)?a:b);if(p.trade&&R.t<p.trade.until){const k=vis.find(e=>e.id===p.trade.id);if(k)tg=k}
+      if(p.target!==tg.id){p.target=tg.id;p.row=0;p.duel0=R.t;
+        let react=0.12+(100-S_(p,'quick'))/100*0.38;if(p.trade&&p.trade.id===tg.id&&R.t<p.trade.until)react*=1-0.5*S_(p,'team')/100;
+        p.readyAt=Math.max(p.readyAt,R.t+react);
+        // Determination: går videre (swinger) i stedet for at stoppe
+        p.swing=p.mode==='route'&&(R.opt.alwaysSwing&&R.opt.alwaysSwing(p)||r()*100<S_(p,'det')*0.6)}
+      p.faceT=angTo(p,tg.x,tg.y);p.fighting=true;
+      // Determination: planter/desarmerer man videre under beskydning, eller stopper man og skyder?
+      const busy=(R.defuse&&R.defuse.p===p)||(R.plant&&R.plant.p===p);
+      if(busy){if(p.busyKeep==null)p.busyKeep=r()*100<S_(p,'det');if(p.busyKeep)continue;if(R.defuse&&R.defuse.p===p)R.defuse=null;if(R.plant&&R.plant.p===p)R.plant=null}
+      if(R.t<p.reloadUntil||R.t<p.readyAt||R.t<p.heT)continue;
+      // Playing IQ: HE-granat mod en fjende, der er tæt på (og helst flere sammen)
+      if(p.he&&!p.thrown&&dist(p,tg)<CFG.heRadius*3.2&&r()<S_(p,'iq')/100*0.15*dt*4){p.he=0;p.thrown=true;p.heT=R.t+CFG.heThrow;
+        const err=(1-S_(p,'iq')/100)*55+10,ang=r()*Math.PI*2,rr=r()*err;R.nades.push({x:tg.x+Math.cos(ang)*rr,y:tg.y+Math.sin(ang)*rr,at:R.t+CFG.heThrow,by:p});continue}
+      let g=p.gun&&(p.gun.mag+p.gun.res>0)?p.gun:p.pis;const w=W[g.type];
+      if(g.mag<=0){if(g.res>0){p.reloadUntil=R.t+CFG.reload;const f=Math.min(w.mag,g.res);g.mag=f;g.res-=f;p.row=0}continue}
+      if(p.row===0&&w.d1&&!p.d1done){p.d1done=true;p.readyAt=R.t+w.d1;continue}
+      p.shotAcc+=w.rate*dt;
+      while(p.shotAcc>=1&&g.mag>0){p.shotAcc-=1;g.mag--;p.row++;R.stats.shots++;
+        const du=dist(p,tg)*M.upx;
+        const moving=isMoving(R,p);
+        let ch=0.06+0.5*S_(p,'aim')/100*(1-0.45*Math.min(1,du/2200));
+        ch-=Math.min(0.32,p.row*0.018*w.rec*(1.4-S_(p,'handling')/100));       // Handling: rekyl i spray
+        if(moving)ch-=(w.c==='sniper'?0.45:0.22)*(1.25-S_(p,'handling')/100);    // Handling: skud i bevægelse
+        if(R.t-p.duel0<1)ch-=(100-S_(p,'calm'))/100*0.14;                        // Calmness: første sekund
+        if(R.t-p.hurtAt<1)ch-=(100-S_(p,'calm'))/100*0.10;                       // Calmness: under beskydning
+        if(p.still>2)ch+=0.08*(S_(p,'pat')-50)/50;                               // Patience: holder vinklen
+        if(tg.still>1)ch-=0.06*(S_(tg,'pos')-50)/50;                             // Positioning (målets): dækning
+        const ca=M.cellOf(p.x,p.y),cb=M.cellOf(tg.x,tg.y);if(M.height[ca[1]*M.W+ca[0]]-M.height[cb[1]*M.W+cb[0]]>=3)ch+=0.04;// højde
+        if(w.c==='sniper')ch+=0.1;
+        const rf=w.fall?Math.max(0,Math.min(1,(du-500)/1500)):0;if(rf)ch*=1-w.acc*rf;
+        if(R.opt.luck)ch*=1+R.opt.luck(p);
+        ch=Math.max(0.02,Math.min(0.9,ch));
+        const hit=r()<ch;(R.opt.visual!==false)&&R.tracers.push({t:R.t,a:[p.x,p.y],b:[tg.x,tg.y],hit,side:p.side});
+        if(hit){R.stats.hits++;const f1=p.row===1&&w.hs1?w.hs1:1,hd=(0.03+0.15*S_(p,'aim')/100)*f1,x=r(),head=x<hd,b=w.dmg*(1-(w.fall||0)*rf);
+          hits.push({s:p,t:tg,dmg:head?hsD(w,tg,b):b*(x<hd+0.5?1:0.5),head,w:g.type})}
+      }
+      p.lastShot=R.t;
+    }else{p.target=null;p.fighting=false;p.row=0;p.shotAcc=0;p.busyKeep=null;p.d1done=false}
+  }
+  // HE-granater, der lander
+  for(const n of R.nades.filter(n=>R.t>=n.at)){for(const q of R.P){if(!q.alive)continue;const d=Math.hypot(q.x-n.x,q.y-n.y);if(d>CFG.heRadius)continue;
+      const[ax,ay]=M.cellOf(n.x,n.y),[bx,by]=M.cellOf(q.x,q.y);if(!losCells(M,ax,ay,bx,by,false))continue;
+      let dm=CFG.heDmg*(1-d/CFG.heRadius);if(q.armor>0)dm*=0.57;if(q.side!==n.by.side)hits.push({s:n.by,t:q,dmg:dm,head:false,w:null,he:true})}
+    R.booms.push({x:n.x,y:n.y,t:R.t})}
+  if(R.nades.length)R.nades=R.nades.filter(n=>R.t<n.at);if(R.booms.length)R.booms=R.booms.filter(b=>R.t-b.t<0.6);
+  // 3) skade og drab
+  for(const h of hits){const t=h.t;if(!t.alive)continue;let d=h.dmg;
+    if(!h.head&&t.armor>0&&h.w){const ap=(W[h.w]&&W[h.w].ap)??0.9,red=Math.min(d*(1-ap),t.armor);t.armor=Math.max(0,t.armor-Math.min(d*0.1,t.armor)*3.5);d-=red}
+    const hp0=t.hp;t.hp-=d;t.hurtAt=R.t;t.dmgBy[h.s.id]=(t.dmgBy[h.s.id]||0)+Math.min(d,Math.max(0,hp0));
+    if(t.hp<=0){t.alive=false;t.hp=0;R._tc=null;h.s.kills++;R.feed.push({t:R.t,k:h.s.name,ks:h.s.side,v:t.name,vs:t.side,head:h.head,w:h.w?W[h.w].n:'HE-granat'});
+      for(const q of teamOf(R,t.side))if(dist(q,t)<R.M.C*40)q.trade={id:h.s.id,until:R.t+3};
+      R.events.push({type:'kill',k:h.s,v:t,w:h.w,head:h.head,he:!!h.he,assist:Object.keys(t.dmgBy).map(Number).filter(id=>id!==h.s.id&&t.dmgBy[id]>=25).map(id=>R.P[id]).filter(a=>a.side!==t.side)});
+      if(t.bomb){t.bomb=false;R.dropped={x:t.x,y:t.y}}
+      if(t.defuse){R.defuse=null}if(R.plant&&R.plant.p===t)R.plant=null}}
+  // 4) bevægelse og rutelogik
+  for(const p of P)if(p.alive)move(R,p);
+  for(const p of P)if(p.alive)turn(p,dt);
+  // 5) bombe
+  if(R.planted){R.bombLeft-=dt;if(R.defuse){const d=R.defuse;if(!d.p.alive)R.defuse=null;else if((d.left-=dt)<=0){R.events.push({type:'defuse',p:d.p});return end(R,'CT','Bomben er desarmeret')}}
+    if(R.bombLeft<=0)return end(R,'T','Bomben sprang')}
+  else if(R.plant){const pl=R.plant;if(!pl.p.alive)R.plant=null;else if((pl.left-=dt)<=0){R.planted=true;R.bombLeft=CFG.bombTime;R.bomb={x:pl.p.x,y:pl.p.y,site:M.siteAt(pl.p.x,pl.p.y)};pl.p.bomb=false;R.plant=null;R.feed.push({t:R.t,msg:`Bomben er plantet på ${R.bomb.site}`});R.events.push({type:'plant',p:pl.p,site:R.bomb.site})}}
+  // 6) slut
+  const nT=teamOf(R,'T').length,nC=teamOf(R,'CT').length;
+  if(!nC)return end(R,'T','CT er døde');
+  if(!nT&&!R.planted)return end(R,'CT','T er døde');
+  if(!R.planted&&R.t>=CFG.roundTime)return end(R,'CT','Tiden løb ud');
+}
+function end(R,w,why){R.over=true;R.winner=w;R.why=why}
+
+/* synsfeltet drejer gradvist mod p.faceT (grader/sek.) */
+function turn(p,dt){if(p.faceT==null)return;let d=p.faceT-p.face;d=Math.atan2(Math.sin(d),Math.cos(d));const m=(p.fighting?CFG.turnFight:CFG.turnRate)*Math.PI/180*dt;p.face=Math.abs(d)<=m?p.faceT:p.face+Math.sign(d)*m}
+/* afterplant: hver T får en tilfældig, unik position blandt sitets 10 (postPlant i kortet) */
+function ppSpot(R,p){const L=R.M.J.postPlant&&R.bomb&&R.M.J.postPlant[R.bomb.site];if(!L||!L.length)return null;if(!R.ppA){R.ppA=new Map();const ix=L.map((_,i)=>i);for(let i=ix.length-1;i>0;i--){const j=Math.floor(R.r()*(i+1));const t=ix[i];ix[i]=ix[j];ix[j]=t}R.ppIx=ix}if(!R.ppA.has(p))R.ppA.set(p,L[R.ppIx[R.ppA.size%L.length]]);return R.ppA.get(p)}
+function move(R,p){
+  const M=R.M,dt=CFG.dt;const spd=CFG.speed/M.upx*dt;
+  const still0=p.x,still1=p.y;
+  // stop for at skyde (medmindre swing eller defuse)
+  if(p.fighting&&!p.swing){p.still+=dt;return}
+  if(R.plant&&R.plant.p===p){p.still+=dt;return}
+  if(R.defuse&&R.defuse.p===p){p.still+=dt;return}
+  // særlige mål
+  if(p.side==='T'){
+    if(R.dropped&&!R.planted&&!p.bomb){const c=teamOf(R,'T').filter(q=>!R.waitH.T.includes(q)).sort((a,b)=>dist(a,R.dropped)-dist(b,R.dropped))[0];
+      if(c===p){if(dist(p,R.dropped)<M.C){p.bomb=true;R.dropped=null;p.mode='bomb'}else return walkTo(R,p,R.dropped.x,R.dropped.y,spd)}}
+    if(p.bomb&&!R.planted){const s=M.siteAt(p.x,p.y);if(s===R.site){if(!R.plant&&!p.fighting){R.plant={p,left:CFG.plantTime}}return}
+      if(p.mode==='bomb'||p.ri>=p.route.length){p.mode='bomb';const rc=M.J.sites[R.site].rect;return walkTo(R,p,(rc[0]+rc[2])/2,(rc[1]+rc[3])/2,spd)}}
+    if(R.planted){p.holdDir=angTo(p,R.bomb.x,R.bomb.y);if(p.ri>=p.route.length||dist(p,R.bomb)>M.C*28){const pt=ppSpot(R,p);if(pt){if(Math.hypot(p.x-pt[0],p.y-pt[1])>M.C*0.8)return walkTo(R,p,pt[0],pt[1],spd)}else if(dist(p,R.bomb)>M.C*10)return walkTo(R,p,R.bomb.x+(p.k-2)*14,R.bomb.y+(p.k%2?18:-18),spd)}}
+  }else{
+    if(R.planted){if(dist(p,R.bomb)<M.C*0.9){if(!R.defuse&&!p.fighting)R.defuse={p,left:CFG.defuseTime};return}return walkTo(R,p,R.bomb.x,R.bomb.y,spd)}
+  }
+  // rute
+  if(p.ri>=p.route.length){p.still+=dt;faceHold(R,p);return}
+  const o=p.route[p.ri];
+  if(!p.arrivedAt&&o.at&&R.t<o.at){p.still+=dt;if(o.dir)p.holdDir=angTo(p,o.dir[0],o.dir[1]);faceHold(R,p);return}
+  if(!p.arrivedAt){if(walkTo(R,p,o.x,o.y,spd)){p.arrivedAt=R.t;p.still=0;if(o.dir)p.holdDir=angTo(p,o.dir[0],o.dir[1]);
+      if(o.t==='wait'&&!R.waitH[p.side].includes(p))R.waitH[p.side].push(p)}return}
+  // står i punktet
+  p.still+=dt;faceHold(R,p);
+  if(o.t==='wait')return;// waitpoint-spilleren bliver, til han dør
+  if(o.t==='sync'&&!R.waitH[p.side].includes(p)){if(o.wf){const h=R.P.find(q=>q.side===p.side&&q.k===o.wf-1);if(h&&h.alive&&(R.waitH[p.side].includes(h)||h.route.slice(h.ri).some(z=>z.t==='wait')))return}else if(R.waitH[p.side].some(h=>h.alive))return}/* wf: syncpointet venter kun på waitpoint-spilleren med den position */// de andre venter ved deres syncpoints (ikke waypoints), så længe en waitpoint-spiller på holdet lever
+  // syncpoint: venter, til alle holdkammerater med et tilsvarende syncpoint er fremme (spillere uden syncpoint ignoreres, døde tæller ikke).
+  // Først derefter tælles sync-tiden – alle tæller fra samme øjeblik og går videre, når deres egen tid er gået.
+  if(o.t==='sync'){const all=syncReady(R,p);if(all===false)return;if(R.t-all<(o.sw||0)-1e-6)return}
+  p.ri++;p.arrivedAt=null;p.goal=null;p.syncAllAt=null;
+  if(p.ri>=p.route.length&&o.dir==null)p.holdDir=p.faceT!=null?p.faceT:p.face;
+}
+function faceHold(R,p){if(p.fighting)return;if(p.heard&&R.t-p.heard.t<2.5){p.faceT=angTo(p,p.heard.x,p.heard.y);return}if(p.holdDir!=null)p.faceT=p.holdDir}
+function walkTo(R,p,x,y,spd){
+  if(!p.goal||p.goal[0]!==x||p.goal[1]!==y)setGoal(R,p,x,y);
+  let left=spd;p.still=0;p.mvT=R.t;
+  while(left>0&&p.pi<p.path.length){const[tx,ty]=p.path[p.pi];const d=Math.hypot(tx-p.x,ty-p.y);
+    if(d<=left){p.x=tx;p.y=ty;left-=d;p.pi++}else{p.x+=(tx-p.x)/d*left;p.y+=(ty-p.y)/d*left;left=0}}
+  if(!p.fighting){const nx=p.x-p.px,ny=p.y-p.py;if(nx||ny)p.faceT=Math.atan2(ny,nx)}
+  {const M=R.M;if(M.hasCross){const k=Math.floor(p.y/M.C)*M.W+Math.floor(p.x/M.C);if(M.cross[k]){const nx=p.x-p.px,ny=p.y-p.py;if(nx||ny)p.layer=Math.abs(nx)>=Math.abs(ny)?1:2}else p.layer=0}}
+  return p.pi>=p.path.length;
+}
+const _step=step;
+// ingen automatiske rotationer eller site-skift: kun taktikkens waitpoints styrer, hvornår spillerne går videre
+function stepAll(R){_step(R)}
+function simulate(M,opt){const R=newRound(M,opt);let n=0;while(!R.over&&n<20000){stepAll(R);n++}return R}
+
+// ---------- kamp: 24 runder, sideskift efter 12, økonomi som i den gamle motor ----------
+function newMatch(M,opt){const r=rng(opt.seed||1);
+  const teams=[{name:opt.nameA||'Hold A',pl:opt.teamA||randomTeam(r,'T',70)},{name:opt.nameB||'Hold B',pl:opt.teamB||randomTeam(r,'CT',70)}];
+  teams.forEach(t=>{t.money=t.pl.map(()=>ECON.start);t.eq=t.pl.map(()=>({gun:null,pis:null,armor:0,helm:false,he:0}));t.ls=0;
+    t.snip=t.pl.map((p,i)=>i).sort((a,b)=>t.pl[b].sk.aim-t.pl[a].sk.aim)});
+  return{M,r,teams,round:0,score:[0,0],log:[],seed:opt.seed||1,over:false}}
+const sideOf=(m,ti)=>(m.round<ECON.half)===(ti===0)?'T':'CT';
+function buyTeam(m,ti){const t=m.teams[ti],side=sideOf(m,ti),SW=SIDEW[side],R1=SW.R1,R2=SW.R2;const P=t.eq,$=t.money;
+  if(m.round===0||m.round===ECON.half){P.forEach((e,i)=>{if($[i]>=PRICE.kevlar){$[i]-=PRICE.kevlar;e.armor=100}});return'pistol'}
+  const has=i=>P[i].gun;
+  if(!P.every((e,i)=>has(i)||$[i]>=PRICE[R2])){
+    const need=i=>PRICE.smg+(P[i].armor?0:PRICE.kevlar);if(!P.every((e,i)=>has(i)||$[i]>=need(i)))return'eco';
+    P.forEach((e,i)=>{if(e.gun)return;const k=e.armor?0:PRICE.kevlar,g=$[i]>=PRICE[R1]+k?R1:$[i]>=PRICE[R2]+k?R2:'smg';$[i]-=PRICE[g]+k;e.gun=g;e.armor=100;if($[i]>=PRICE.helm&&!e.helm){$[i]-=PRICE.helm;e.helm=true}});return'force'}
+  P.forEach((e,i)=>{if(!e.gun)return;const full=PRICE[R1]+(e.armor?0:PRICE.kevlar)+(e.helm?0:PRICE.helm);if(e.gun==='smg'&&$[i]>=PRICE[R1]||e.gun===R2&&$[i]>=full)e.gun=null});
+  let sn=P.some(e=>e.gun==='sniper');
+  for(const i of t.snip){const e=P[i];for(const[g0,k,h,he]of PR){const g=g0==='R1'?R1:g0==='R2'?R2:g0;
+      if(e.gun?e.gun!==g:(g==='smg'||g==='sniper'&&sn))continue;
+      const c=(e.gun?0:PRICE[g])+(k&&e.armor<100?PRICE.kevlar:0)+(h&&!e.helm?PRICE.helm:0)+(he&&!e.he?PRICE.he:0);if($[i]<c)continue;
+      $[i]-=c;if(!e.gun){e.gun=g;if(g==='sniper')sn=true}if(k)e.armor=100;if(h)e.helm=true;if(he)e.he=1;break}}
+  return'standard'}
+// sidens våben skifter ved sideskift (AK ↔ M4 osv.)
+const SWAP={ak47:'m4a4',m4a4:'ak47',galil:'famas',famas:'galil',glock:'p2000',p2000:'glock'};
+function startMatchRound(m,tTac,ctTac){
+  if(m.round===ECON.half)m.teams.forEach(t=>{t.money=t.pl.map(()=>ECON.start);t.eq.forEach(e=>{e.gun=null;e.pis=null;e.armor=0;e.helm=false;e.he=0});t.ls=0});
+  const buys=[buyTeam(m,0),buyTeam(m,1)];const tI=sideOf(m,0)==='T'?0:1,cI=1-tI;
+  const lo=ti=>m.teams[ti].eq.map(e=>({gun:e.gun,pis:e.pis,armor:e.armor,helm:e.helm,he:e.he}));
+  const R=newRound(m.M,{seed:m.seed*1000+m.round+1,tTac,ctTac,teamT:m.teams[tI].pl,teamCT:m.teams[cI].pl,loadout:{T:lo(tI),CT:lo(cI)}});
+  R.match={tI,cI,buys:{T:buys[tI],CT:buys[cI]}};return R}
+function endMatchRound(m,R){const{tI,cI}=R.match,wI=R.winner==='T'?tI:cI;m.score[wI]++;m.log.push({round:m.round+1,winner:R.winner,why:R.why,buys:R.match.buys});
+  for(const ti of[tI,cI]){const t=m.teams[ti],side=ti===tI?'T':'CT',won=ti===wI;
+    if(won)t.ls=Math.max(0,t.ls-1);else t.ls=Math.min(ECON.loss.length-1,t.ls+1);
+    const lb=ECON.loss[Math.max(0,t.ls-1)];
+    R.P.filter(p=>p.side===side).forEach(p=>{const e=t.eq[p.k];t.money[p.k]=Math.min(ECON.max,t.money[p.k]+(won?ECON.win:lb)+p.kills*ECON.kill);
+      if(p.alive){e.gun=p.gun?p.gun.type:null;e.pis=p.pis&&p.pis.type!==SIDEW[side].P?p.pis.type:null;e.armor=Math.round(p.armor);e.helm=p.helm&&p.armor>0;e.he=p.he}
+      else{e.gun=null;e.pis=null;e.armor=0;e.helm=false;e.he=0}})}
+  m.round++;
+  if(m.round===ECON.half)m.teams.forEach(t=>t.eq.forEach(e=>{if(e.gun&&SWAP[e.gun])e.gun=SWAP[e.gun]}));
+  if(m.score[0]>ECON.half||m.score[1]>ECON.half||m.round>=ECON.rounds)m.over=true}
+function simulateMatch(M,opt){const m=newMatch(M,opt);const tl=Object.keys(TACT.T),cl=Object.keys(TACT.CT);
+  while(!m.over){const tt=opt.tTac||tl[Math.floor(m.r()*tl.length)],ct=opt.ctTac||cl[Math.floor(m.r()*cl.length)];const R=startMatchRound(m,tt,ct);let n=0;while(!R.over&&n<20000){stepAll(R);n++}endMatchRound(m,R)}return m}
+
+root.CSM2D={W,PRICE,ECON,newMatch,startMatchRound,endMatchRound,simulateMatch,sideOf,CFG,makeMap,newRound,step:stepAll,simulate,TACT,SK,rng,astar,canSee};
+})(typeof window!=='undefined'?window:globalThis);
