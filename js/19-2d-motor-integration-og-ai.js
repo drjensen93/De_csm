@@ -346,8 +346,8 @@ function t2Check(){const B=TB,mp=e2dMap(B.map),out=[];let ok=true;
   return{ok,out}}
 
 // ---------- tegning ----------
-let T2img=null;
-function t2Draw(){const cv=document.getElementById('t2cv');if(!cv||!TB||!TB.d2)return;const B=TB,mp=e2dMap(B.map);if(!T2img)T2img=mapImage(mp);
+let T2img=null,T2mp=null;/* kortbilledet huskes pr. map: skift af map (fx fra dust2 til aztec) tegner det rigtige kort */
+function t2Draw(){const cv=document.getElementById('t2cv');if(!cv||!TB||!TB.d2)return;const B=TB,mp=e2dMap(B.map);if(!T2img||T2mp!==mp){T2img=mapImage(mp);T2mp=mp}
   const r=cv.getBoundingClientRect(),dpr=window.devicePixelRatio||1;if(cv.width!==Math.round(r.width*dpr)){cv.width=Math.round(r.width*dpr);cv.height=Math.round(r.width*dpr)}
   const ctx=cv.getContext('2d'),base=cv.width/1024,V=B.view,s=base*V.s;ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cv.width,cv.height);ctx.setTransform(s,0,0,s,-V.x*s,-V.y*s);ctx.drawImage(T2img,0,0);
   const C=mp.C,c=(cx,cy)=>[cx*C+C/2,cy*C+C/2];
