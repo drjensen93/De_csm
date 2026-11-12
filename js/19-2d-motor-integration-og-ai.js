@@ -295,7 +295,7 @@ function draw2D(){requestAnimationFrame(draw2D);const wrap=$('e2w');if(wrap&&wra
     ctx2.lineWidth=2;
     ctx2.strokeStyle=p.hp>50?'#5cbf7a':p.hp>25?'#e8c33d':'#e05a4f';ctx2.beginPath();ctx2.arc(x,y,11.5,-Math.PI/2,-Math.PI/2+Math.PI*2*p.hp/100);ctx2.stroke();
     if(p.bomb){ctx2.fillStyle='#ff8a3d';ctx2.fillRect(x+8,y-13,6,6)}
-    const pl=R2.plant&&R2.plant.p===p?1-R2.plant.left/E.CFG.plantTime:R2.defuse&&R2.defuse.p===p?1-R2.defuse.left/E.CFG.defuseTime:null;if(pl!=null){ctx2.strokeStyle='#fff';ctx2.lineWidth=3;ctx2.beginPath();ctx2.arc(x,y,16,-Math.PI/2,-Math.PI/2+Math.PI*2*pl);ctx2.stroke()}
+    const pl=R2.plant&&R2.plant.p===p?1-R2.plant.left/E.CFG.plantTime:R2.defuse&&R2.defuse.p===p?1-R2.defuse.left/(R2.defuse.tot||E.CFG.defuseTime):null;if(pl!=null){ctx2.strokeStyle='#fff';ctx2.lineWidth=3;ctx2.beginPath();ctx2.arc(x,y,16,-Math.PI/2,-Math.PI/2+Math.PI*2*pl);ctx2.stroke()}
     if(names){ctx2.font='700 12px sans-serif';ctx2.textAlign='center';ctx2.textBaseline='top';ctx2.lineWidth=3;ctx2.lineJoin='round';ctx2.strokeStyle='#000000b0';ctx2.strokeText(p.name,x,y+14);ctx2.fillStyle=col;ctx2.fillText(p.name,x,y+14);ctx2.textAlign='left';ctx2.textBaseline='alphabetic'}ctx2.globalAlpha=1}}
 // gem positionerne før hvert tick, så visningen kan glide mellem dem
 {const _t2=tick2D;tick2D=function(){if(R&&R.e2)R.e2.P.forEach(p=>{p.prx=p.x;p.pry=p.y;p.prf=p.face});lastTickAt=performance.now();return _t2()}}

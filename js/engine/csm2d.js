@@ -55,7 +55,7 @@ function makeMap(J){
     for(let k=0;k<=n;k++){const an=A?(A[3]+(A[4]-A[3])*k/n)*Math.PI/180:0;for(const dr of A?[0,-4,-7]:[0]){if(A&&dr&&(k<n*.08||k>n*.92))continue;const px=A?A[0]+(A[2]+dr)*Math.cos(an):x0+(x1-x0)*k/n,py=A?A[1]+(A[2]+dr)*Math.sin(an):y0+(y1-y0)*k/n,cx=Math.floor(px/C),cy=Math.floor(py/C);if(cx<0||cy<0||cx>=W||cy>=H)continue;const ci=cy*W+cx;if(walk[ci])continue;
       if((J.boxes||[]).some(b=>Math.min(b[2],cx*C+C)-Math.max(b[0],cx*C)>2&&Math.min(b[3],cy*C+C)-Math.max(b[1],cy*C)>2))continue;M.glass[ci]=1}}}
   /* seeRects: vægfelter, man kan se hen over (lave hegn, rækværk, tynde søjler), men ikke gå igennem. minH: kun når begge ender står i mindst den højde (fx kanten om Pit) */
-  for(const B of J.seeRects||[]){const[x0,y0,x1,y1]=B.rect;for(let y=Math.floor(y0/C);y<=Math.floor(y1/C);y++)for(let x=Math.floor(x0/C);x<=Math.floor(x1/C);x++)if(x>=0&&y>=0&&x<W&&y<H&&!walk[y*W+x]){M.glass[y*W+x]=1;if(B.minH){M.seeH=M.seeH||new Uint8Array(W*H);M.seeN=M.seeN||new Uint8Array(W*H);M.seeH[y*W+x]=B.minH;M.seeN[y*W+x]=B.near||0}}}
+  for(const B of J.seeRects||[]){const[x0,y0,x1,y1]=B.rect;for(let y=Math.floor(y0/C);y<=Math.floor(y1/C);y++)for(let x=Math.floor(x0/C);x<=Math.floor(x1/C);x++)if(x>=0&&y>=0&&x<W&&y<H&&!walk[y*W+x]){M.glass[y*W+x]=1;if(B.minH){M.seeH=M.seeH||new Uint8Array(W*H);M.seeN=M.seeN||new Uint8Array(W*H);M.seeH[y*W+x]=B.minH;M.seeN[y*W+x]=B.near||0;if(B.low){M.seeL=M.seeL||[];M.seeL[y*W+x]=B.low}}}}
   M.okL=(x,y)=>M.ok(x,y)||(x>=0&&y>=0&&x<W&&y<H&&M.glass[y*W+x]===1);
   M.cellOf=(px,py)=>[Math.min(W-1,Math.max(0,Math.floor(px/C))),Math.min(H-1,Math.max(0,Math.floor(py/C)))];
   M.areaAt=(px,py)=>{const[x,y]=M.cellOf(px,py);return cells[y*W+x]};
@@ -99,7 +99,7 @@ function losCells(M,ax,ay,bx,by,strict){let x=ax,y=ay,pi=ay*M.W+ax;const bE=!str
     if(dx&&(!dy||a<b)){x+=sx;ix++}else if(dy&&(!dx||b<a)){y+=sy;iy++}else{if(!ok(x+sx,y)||!ok(x,y+sy))return false;x+=sx;y+=sy;ix++;iy++}
     if(!ok(x,y))return false;
     if(nsR){const ci=y*M.W+x;for(const m of nsR)if(m[ci])return false}
-    if(!strict&&M.seeH&&M.seeH[y*M.W+x]&&Math.min(M.height[ay*M.W+ax],M.height[by*M.W+bx])<M.seeH[y*M.W+x]){/* lav kant: kun til at se hen over oppefra, og kun når den, der står oppe, er højst near felter fra kanten */
+    if(!strict&&M.seeH&&M.seeH[y*M.W+x]&&Math.min(M.height[ay*M.W+ax],M.height[by*M.W+bx])<M.seeH[y*M.W+x]&&(!M.seeL||!M.seeL[y*M.W+x]||[ay*M.W+ax,by*M.W+bx].some(k=>M.height[k]<M.seeH[y*M.W+x]&&M.seeL[y*M.W+x].includes(M.cells[k])))){/* low: kun når den lave spiller står i et af de områder *//* lav kant: kun til at se hen over oppefra, og kun når den, der står oppe, er højst near felter fra kanten */
       const ci=y*M.W+x,hA=M.height[ay*M.W+ax]>=M.seeH[ci],hB=M.height[by*M.W+bx]>=M.seeH[ci],n=M.seeN[ci],nr=(px,py)=>Math.max(Math.abs(px-x),Math.abs(py-y))<=n;
       if(!n||!((hA&&nr(ax,ay))||(hB&&nr(bx,by))))return false}
     if(!strict&&M.blind&&M.blind[y*M.W+x]&&(x!==bx||y!==by)&&(!M.blindAx[y*M.W+x]||(M.blindAx[y*M.W+x]===1?dx>=dy:dy>=dx))){if(!bE)return false;hitB=true}/* blinde felter (fx vindeltrappen): kan gås igennem, men ikke ses igennem. Står man selv på dem, ser man kort ud (blindR felter) */
@@ -356,13 +356,20 @@ function turn(p,dt){if(p.faceT==null)return;let d=p.faceT-p.face;d=Math.atan2(Ma
 /* afterplant: hver T får en tilfældig, unik position blandt sitets 10 (postPlant i kortet) */
 function ppSpot(R,p){const L=R.M.J.postPlant&&R.bomb&&R.M.J.postPlant[R.bomb.site];if(!L||!L.length)return null;if(!R.ppA){R.ppA=new Map();const ix=L.map((_,i)=>i);for(let i=ix.length-1;i>0;i--){const j=Math.floor(R.r()*(i+1));const t=ix[i];ix[i]=ix[j];ix[j]=t}R.ppIx=ix}if(!R.ppA.has(p))R.ppA.set(p,L[R.ppIx[R.ppA.size%L.length]]);return R.ppA.get(p)}
 /* CT rydder sitet før defuse: afterplant-pladserne (hvor T typisk står) skal have været set af en CT, før han går hen til bomben – medmindre tiden er ved at løbe ud */
-function ctClear(R,p,spd){const M=R.M,L=M.J.postPlant&&R.bomb&&M.J.postPlant[R.bomb.site];if(!L||!L.length)return null;
+function ctClear(R,p,spd){if(!teamOf(R,'T').length)return null;/* alle T er døde: gå direkte til bomben */const M=R.M,L=M.J.postPlant&&R.bomb&&M.J.postPlant[R.bomb.site];if(!L||!L.length)return null;
   const W=M.W,ci=c=>Math.floor(c[1]/M.C)*W+Math.floor(c[0]/M.C);if(!R.ppClr)R.ppClr=new Set();
   const pc={ci:ci([p.x,p.y]),layer:p.layer||0};
   for(const t of teamOf(R,'CT'))if(t.alive){const tc={ci:ci([t.x,t.y]),layer:t.layer||0};for(let i=0;i<L.length;i++)if(!R.ppClr.has(i)&&canSee(R,tc,{ci:ci(L[i]),layer:0}))R.ppClr.add(i)}
-  const need=dist(p,R.bomb)/(spd/CFG.dt)*1.3+CFG.defuseTime*(p.ref&&p.ref.kit?0.5:1)+2;if(R.bombLeft<need)return null;
-  let b=null,bd=1e9;for(let i=0;i<L.length;i++){if(R.ppClr.has(i))continue;const d=Math.hypot(p.x-L[i][0],p.y-L[i][1]);if(d<bd){bd=d;b=L[i]}}
-  return b}
+  /* beslutningen genberegnes højst én gang i sekundet (eller når den valgte plads er set) */
+  if(p._cc&&R.t-p._cc.t<1&&(p._cc.i<0||!R.ppClr.has(p._cc.i)))return p._cc.b;
+  let bi=-1,bd=1e9;for(let i=0;i<L.length;i++){if(R.ppClr.has(i))continue;const d=Math.hypot(p.x-L[i][0],p.y-L[i][1]);if(d<bd){bd=d;bi=i}}
+  let b=bi<0?null:L[bi];
+  /* tid: den rigtige gåvej (rundt om vægge) fra spilleren til pladsen og videre til bomben + desarmering (kit = halv tid) + 2 sek. margen */
+  if(b){const v=spd/CFG.dt,need=(pathLen(M,p.x,p.y,b[0],b[1],p.layer)+pathLen(M,b[0],b[1],R.bomb.x,R.bomb.y,0))/v*1.15+CFG.defuseTime*(p.ref&&p.ref.kit?0.5:1)+2;if(R.bombLeft<need){b=null;bi=-1}}
+  p._cc={t:R.t,b,i:bi};return b}
+/* længden af gåvejen mellem to punkter (px), målt langs den vej spillerne faktisk går */
+function pathLen(M,ax,ay,bx,by,layer){const[sx,sy]=M.nearestWalk(...M.cellOf(ax,ay)),[tx,ty]=M.nearestWalk(...M.cellOf(bx,by)),P=astar(M,sx,sy,tx,ty,layer);
+  if(!P)return Math.hypot(bx-ax,by-ay)*1.5;let L=0,x=ax,y=ay;for(const q of P){L+=Math.hypot(q[0]-x,q[1]-y);x=q[0];y=q[1]}return L+Math.hypot(bx-x,by-y)}
 function move(R,p){
   const M=R.M,dt=CFG.dt;const spd=CFG.speed/M.upx*dt;
   const still0=p.x,still1=p.y;
@@ -377,11 +384,18 @@ function move(R,p){
     if(p.bomb&&!R.planted){const s=M.siteAt(p.x,p.y);if(s===R.site){if(!R.plant&&!p.fighting){R.plant={p,left:CFG.plantTime}}return}
       if(p.mode==='bomb'||p.ri>=p.route.length){p.mode='bomb';const rc=M.J.sites[R.site].rect;return walkTo(R,p,(rc[0]+rc[2])/2,(rc[1]+rc[3])/2,spd)}}
     /* CT desarmerer: T hører det og går mod den, der desarmerer, for at stoppe ham (gælder også gemte T) */
-    if(R.planted&&R.defuse&&R.defuse.p.alive){const d=R.defuse.p;p.holdDir=angTo(p,d.x,d.y);p.heard={x:d.x,y:d.y,t:R.t};walkTo(R,p,d.x,d.y,spd);if(!p.fighting)p.faceT=angTo(p,d.x,d.y);return}
+    if(R.planted&&R.defuse&&R.defuse.p.alive){const d=R.defuse.p;p.holdDir=angTo(p,d.x,d.y);p.heard={x:d.x,y:d.y,t:R.t};
+      /* går kun frem, til han kan se bomben – derfra skyder han på den, der desarmerer, i stedet for at løbe hen på bomben */
+      const bc=Math.floor(R.bomb.y/M.C)*M.W+Math.floor(R.bomb.x/M.C);if(!canSee(R,{ci:cellIdx(M,p),layer:p.layer||0},{ci:bc,layer:0}))walkTo(R,p,d.x,d.y,spd);else p.still+=dt;
+      if(!p.fighting)p.faceT=angTo(p,d.x,d.y);return}
     if(R.planted){p.holdDir=angTo(p,R.bomb.x,R.bomb.y);if(p.ri>=p.route.length||dist(p,R.bomb)>M.C*28){const pt=ppSpot(R,p);if(pt){if(Math.hypot(p.x-pt[0],p.y-pt[1])>M.C*0.8)return walkTo(R,p,pt[0],pt[1],spd)}else if(dist(p,R.bomb)>M.C*10)return walkTo(R,p,R.bomb.x+(p.k-2)*14,R.bomb.y+(p.k%2?18:-18),spd)}}
   }else{
-    if(R.planted){if(dist(p,R.bomb)<M.C*0.9){if(!R.defuse&&!p.fighting)R.defuse={p,left:CFG.defuseTime};return}
+    if(R.planted){/* tæt nok på bomben: under 0,9 felt, eller fremme ved nærmeste gangbare felt, hvis bomben ligger, hvor man ikke kan gå (kant/kasse) */const atB=dist(p,R.bomb)<M.C*0.9||(dist(p,R.bomb)<M.C*3&&p.goal&&p.goal[0]===R.bomb.x&&p.goal[1]===R.bomb.y&&p.pi>=p.path.length);
+      if(atB&&!(R.defuse&&R.defuse.p!==p)){if(!R.defuse&&!p.fighting){const dt0=CFG.defuseTime*(p.ref&&p.ref.kit?0.5:1);R.defuse={p,left:dt0,tot:dt0}}return}// kit halverer desarmeringstiden
       const cs=ctClear(R,p,spd);if(cs){walkTo(R,p,cs[0],cs[1],spd);if(!p.fighting)p.faceT=angTo(p,cs[0],cs[1]);return}
+      /* kun én CT går hen til bomben, mens der er T tilbage: de andre stopper ca. 6 felter fra bomben og dækker ham (kigger udad) */
+      if(teamOf(R,'T').length){const me=R.defuse?R.defuse.p:teamOf(R,'CT').reduce((a,b)=>dist(a,R.bomb)<=dist(b,R.bomb)?a:b);
+        if(me!==p){if(dist(p,R.bomb)>M.C*6)return walkTo(R,p,R.bomb.x,R.bomb.y,spd);p.still+=dt;p.holdDir=angTo(R.bomb,p.x,p.y);faceHold(R,p);return}}
       return walkTo(R,p,R.bomb.x,R.bomb.y,spd)}
   }
   // rute
