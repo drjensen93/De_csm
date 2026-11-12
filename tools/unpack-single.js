@@ -18,11 +18,12 @@ const got={};for(let i=1;i<parts.length;i+=2){let t=parts[i+1];if(i+2<parts.leng
 const miss=files.filter(f=>!(f in got)),extra=Object.keys(got).filter(f=>!files.includes(f));
 if(miss.length||extra.length)throw new Error(`Filerne passer ikke med index.html. Mangler: ${miss.join(', ')||'-'}. Ekstra: ${extra.join(', ')||'-'}`);
 // sidens øvrige HTML (alt uden for style og script) skal være uændret
-const shell=h=>h.replace(/<style>\n[\s\S]*?<\/style>/,'<style></style>').replace(/<script>\n[\s\S]*<\/script>/,'<script></script>');
+// <title> holdes i trit med artefaktets titel af Claude, så den ignoreres
+const shell=h=>h.replace(/<title>[^<]*<\/title>/,'').replace(/<style>\n[\s\S]*?<\/style>/,'<style></style>').replace(/<script>\n[\s\S]*<\/script>/,'<script></script>');
 const built=path.join(root,'dist','de_csm.html');cp.execFileSync('node',[path.join(__dirname,'build-single.js')],{stdio:'ignore'});
 if(shell(fs.readFileSync(built,'utf8'))!==shell(html))console.warn('ADVARSEL: sidens HTML uden for <style>/<script> er ændret – index.html skal opdateres i hånden.');
 let n=0;if(cssFile&&fs.readFileSync(path.join(root,cssFile),'utf8')!==st[1]){fs.writeFileSync(path.join(root,cssFile),st[1]);console.log('ændret:',cssFile);n++}
 for(const f of files){const p=path.join(root,f);if(fs.readFileSync(p,'utf8')!==got[f]){fs.writeFileSync(p,got[f]);console.log('ændret:',f);n++}}
 cp.execFileSync('node',[path.join(__dirname,'build-single.js')],{stdio:'ignore'});
-const same=fs.readFileSync(built,'utf8')===html;
-console.log(`${n} fil(er) ændret. Genbygget fil ${same?'er identisk med':'AFVIGER fra'} ${path.basename(src)}.`);process.exit(same?0:2);
+const noT=h=>h.replace(/<title>[^<]*<\/title>/,'');const same=noT(fs.readFileSync(built,'utf8'))===noT(html);
+console.log(`${n} fil(er) ændret. Genbygget fil ${same?'er identisk med':'AFVIGER fra'} ${path.basename(src)} (titlen undtaget).`);process.exit(same?0:2);

@@ -4,7 +4,7 @@
 (function(root){
 'use strict';
 const CFG={
-  dt:0.25, turnRate:90, turnFight:180, roundTime:115, bombTime:40, plantTime:3.2, defuseTime:10,
+  dt:0.125, turnRate:90, turnFight:180, roundTime:115, bombTime:40, plantTime:3.2, defuseTime:10,
   speed:215,            // u/s med riffel
   hp:100, reload:2,
   heRadius:80, heDmg:70, heThrow:0.9, // HE: radius i px (ca. 350 u), maks. skade, kastetid
@@ -160,6 +160,8 @@ function loadout(opt,side,k){const L=opt.loadout&&opt.loadout[side]&&opt.loadout
   return{gun:mkGun(k===0&&side==='CT'?'sniper':SIDEW[side].R1),pis:mkGun(SIDEW[side].P),armor:100,helm:true,he:1,hp:CFG.hp}}
 let S_=(p,k)=>p.sk[k];
 const isMoving=(R,p)=>R.t-(p.mvT??-9)<=CFG.dt*1.5;
+// kurve for spot/reaktion: høj skill skærer stadig tiden markant ned, men hele duellen sker hurtigere
+const kCurve=s=>Math.pow(Math.max(0,Math.min(100,100-s))/100,1.5);
 const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
 const angTo=(a,bx,by)=>Math.atan2(by-a.y,bx-a.x);
 const angDiff=(a,b)=>{let d=a-b;while(d>Math.PI)d-=2*Math.PI;while(d<-Math.PI)d+=2*Math.PI;return Math.abs(d)};
@@ -230,7 +232,7 @@ function step(R){
       if(s){s.vis=true;s.last=R.t;continue}
       const inF=angDiff(p.face,angTo(p,e.x,e.y))<fov;
       const moving=isMoving(R,e);
-      let delay=inF?0.12+(100-S_(p,'aware'))/100*0.45:(d<22&&moving?0.5+(100-S_(p,'aware'))/100*1.1:99);
+      let delay=inF?0.05+0.25*kCurve(S_(p,'aware')):(d<22&&moving?0.3+0.6*kCurve(S_(p,'aware')):99);
       // Playing IQ: står fjenden der, hvor man forventede (holdretning), ser man ham hurtigere
       if(inF&&p.holdDir!=null&&angDiff(p.holdDir,angTo(p,e.x,e.y))<0.35)delay*=1-0.4*S_(p,'iq')/100;
       else if(inF&&p.heard&&R.t-p.heard.t<2.5&&angDiff(angTo(p,p.heard.x,p.heard.y),angTo(p,e.x,e.y))<0.45)delay*=0.7;
@@ -250,8 +252,8 @@ function step(R){
       // mål: den nærmeste; Teamplay: drabsmanden på en holdkammerat går forud
       let tg=vis.reduce((a,b)=>dist(p,a)<dist(p,b)?a:b);if(p.trade&&R.t<p.trade.until){const k=vis.find(e=>e.id===p.trade.id);if(k)tg=k}
       if(p.target!==tg.id){p.target=tg.id;p.row=0;p.duel0=R.t;
-        let react=0.12+(100-S_(p,'quick'))/100*0.38;if(p.trade&&p.trade.id===tg.id&&R.t<p.trade.until)react*=1-0.5*S_(p,'team')/100;
-        p.readyAt=Math.max(p.readyAt,R.t+react);
+        let react=0.08+0.25*kCurve(S_(p,'quick'));if(p.trade&&p.trade.id===tg.id&&R.t<p.trade.until)react*=1-0.5*S_(p,'team')/100;
+        {const sq=p.seen[tg.id];p.readyAt=Math.max(p.readyAt,Math.max(sq?sq.at:R.t,R.t-dt)+react)}// reaktionen tæller fra det øjeblik, han blev set (også midt i et skridt)
         // Determination: går videre (swinger) i stedet for at stoppe
         p.swing=p.mode==='route'&&(R.opt.alwaysSwing&&R.opt.alwaysSwing(p)||r()*100<S_(p,'det')*0.6)}
       p.faceT=angTo(p,tg.x,tg.y);p.fighting=true;
@@ -265,7 +267,8 @@ function step(R){
       let g=p.gun&&(p.gun.mag+p.gun.res>0)?p.gun:p.pis;const w=W[g.type];
       if(g.mag<=0){if(g.res>0){p.reloadUntil=R.t+CFG.reload;const f=Math.min(w.mag,g.res);g.mag=f;g.res-=f;p.row=0}continue}
       if(p.row===0&&w.d1&&!p.d1done){p.d1done=true;p.readyAt=R.t+w.d1;continue}
-      p.shotAcc+=w.rate*dt;
+      {const t0=Math.max(p.readyAt||0,p.reloadUntil||0,p.heT||0),fr=Math.max(0,Math.min(dt,R.t-t0));// mid-tick: første skud kommer, så snart han er klar; derefter kun skud for den del af skridtet, han har været klar
+        if(p.row===0&&p.shotAcc<1)p.shotAcc=1+w.rate*fr;else p.shotAcc+=w.rate*fr}
       while(p.shotAcc>=1&&g.mag>0){p.shotAcc-=1;g.mag--;p.row++;R.stats.shots++;
         const du=dist(p,tg)*M.upx;
         const moving=isMoving(R,p);

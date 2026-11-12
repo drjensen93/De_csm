@@ -1,6 +1,7 @@
 /* ===== KONFIG ===== */
 const ARMOR_WEAR=3.5; // armor-slitage pr. skadepoint der reduceres
-const TICK_MS=70,TPS=4,TK=1.6,ROUND_TICKS=420,BOMB_TICKS=160,PLANT_T=12,DEF_T=40,LATE=80,RELOAD=8; // 1 tick = 0,25 s. TK = omregning fra gamle 0,4 s-ticks (taktik-tidspunkter)
+let TICK_MS=(()=>{try{return +localStorage.getItem('csmSpd')||125}catch(e){return 125}})();// visningstempo: 250 = 1×, 125 = 2×, 62 = 4×
+const TPS=4,TK=1.6,ROUND_TICKS=420,BOMB_TICKS=160,PLANT_T=12,DEF_T=40,LATE=80,RELOAD=8; // 1 tick = 0,25 s. TK = omregning fra gamle 0,4 s-ticks (taktik-tidspunkter)
 const TN={T:['A-rush','B-rush','A-fake til B','B-fake til A','3A-2B','2A-3B','Mid-push til A','Connector-cut til B','Sen A-hit','Sen B-hit'],CT:['Rush via A','Rush via B','4B-1A','4A-1B','2A-1C-2B','3C-1A-1B','Mid-kontrol','A-presning','Spredt info','Retake']};
 // Managerens rækkefølge (hold 1). Ret frit. Hold 2 får tilfældig rækkefølge.
 const mgr0=()=>({T:{pistol:TN.T.slice(0,4),standard:TN.T.slice(0,4),eco:TN.T.slice(0,4)},CT:{pistol:TN.CT.slice(0,4),standard:TN.CT.slice(0,4),eco:TN.CT.slice(0,4)}});
