@@ -571,7 +571,7 @@ function aiSpots(map){if(AIS[map])return AIS[map];let sd=97;const rr=()=>{sd=(sd
   // T's indgange til sitet: dem, T kan nå før CT (eller tæt på)
   for(const s in ent)ent[s].sort((a,b)=>a.dT-b.dT);
   const plant={};for(const s of SITES){const L=aiCellsOf(mp,s).filter(([x,y])=>clear(x,y));plant[s]=L.length?L:aiCellsOf(mp,s)}
-  return AIS[map]={mp,SITES,ent,front,plant,TS,CS,DT,DC,zT}}
+  return AIS[map]={mp,SITES,ent,front,plant,TS,CS,DT,DC,zT,los,clear,ok,zone}}
 const aiMapOf=X=>Object.keys(MAPS).find(k=>MAPS[k]===X.m);
 const aiP=a=>a[Math.floor(aiR()*a.length)];
 const aiPt=(t,q,dir,at,sw)=>{const p=[t,q[0],q[1],dir==null?(q[2]!=null?q[2]:null):dir,at||0];if(t===1)p.push(sw||SYNC_DEF);return p};
@@ -610,11 +610,11 @@ function aiBuildT2(map,opt){const S=aiSpots(map);opt=opt||{};const site=opt.site
   const E=(S.ent[site]||[]).slice().sort((a,b)=>a.dT-b.dT);const near=E.slice(0,Math.min(E.length,3));
   const tempo=opt.tempo||aiP(['rush','exec','exec','exec','late']),split=near.length>1&&aiR()<.4;
   const e1=opt.ent||(aiR()<.65?near[0]:aiP(near)),e2=split?aiP(near.filter(e=>e!==e1)):e1;
-  const extra=aiP(['none','none','fake','lurk','lurk']),sw=tempo==='rush'?0:2+Math.floor(aiR()*5);
+  const extra=aiP(['none','none','fake','lurk','lurk']),sw=tempo==='rush'?2:2+Math.floor(aiR()*(tempo==='late'?7:5));// sync-tid: rush 2, exec 2–6, sent hit 2–8 sek.
   const lateAt=tempo==='late'?40+Math.floor(aiR()*25):0;
-  const r2=[];const go=(e,k)=>{const ck=aiP(e.checks),inS=aiP(S.plant[site]);const w=[];
+  const r2=[],TJ=new Map();const go=(e,k)=>{const tj=aiTjek(map,S,e,TJ),ck=tj.ck,inS=aiP(S.plant[site]);const w=[];
     if(tempo==='late'){const f=aiP(S.front.filter(f=>f.dT<f.dC));if(f){w.push(aiPt(0,aiP(f.checks)))}}
-    if(tempo==='rush')w.push(aiPt(0,ck));else w.push(aiPt(1,ck,null,0,sw));
+    w.push(aiPt(1,ck,tj.dir,0,sw));// vinkeltjek ved tjekpunktet
     if(lateAt)w[w.length-1][0]===1?(w.splice(w.length-1,0,aiPt(0,ck,null,lateAt))):null;
     w.push(aiPt(0,e.c,aiDir(e.c,inS)));w.push(aiPt(0,inS,null));return w};
   const grp=[0,1,2,3,4];let spec=-1;
@@ -778,5 +778,60 @@ function aiRobustC(map,r2){const S=aiSpots(map),mp=S.mp;if(S.SITES.length<2)retu
 // standardtaktik som tekst: map, side, navn, mål-site og punkterne pr. rolle
 function t2Export(){const B=TB,mp=e2dMap(B.map);const nm=(B.nm||'').trim()||(B.src&&txIsX(B.src)?txName(B.src):'')||'Uden navn';
   return JSON.stringify({csm:'std2d',v:1,map:B.map,side:B.sd,name:nm,site:B.sd==='T'?B.st:undefined,roles:ROLES[B.sd],r2:B.r2,zones:r2Zones(mp,B.r2).map(w=>w.map(([z,a])=>a?z+'@'+a:z).join(','))})}
+
+/* ===== FASE 66: vinkeltjek og spots lært fra kampe (12. nov.) =====
+ - Gitter: drab og dødsfald logges pr. felt på 3×3 (WD.gv[liga][map][side]) for CT, der har stået stille i mindst GV.still sek., og for T, der står ved et syncpoint. Halveres ved sæsonskifte.
+ - Nye spots: et felt med mindst GV.min kampe og mindst lige så mange drab som dødsfald bliver en ny holdeplads (CT) eller et nyt tjekpunkt (T) ved den indgang, det passer til. Falder det under grænsen, ryger det af igen.
+ - Vinkeltjek: T's syncpoint før en indgang kigger mod de CT-pladser, ligaens CT oftest står på. Har én plads over GV.stack af kampene, kigger alle der (stack-tjek); ellers tager hver spiller sin egen plads, mest brugte først (spredt tjek). Uden data (under GV.dirMin kampe) vælges tilfældigt.
+ - Sync-tid: rush 2 sek., exec 2–6 sek., sent hit 2–8 sek. */
+const GV={min:10,rate:1,stack:.5,dirMin:6,still:1,maxL:6};// maxL = højst så mange lærte spots pr. indgang (de bedste)
+function gvOf(li,map,sd){return WD&&WD.gv&&WD.gv[li]&&WD.gv[li][map]&&WD.gv[li][map][sd]||null}
+const gvOk=s=>!!s&&s[0]+s[1]>=GV.min&&(s[0]+.5)/(s[1]+1)>=GV.rate;
+const aiSpotsB=aiSpots,AISL={};
+aiSpots=function(map){const B=aiSpotsB(map),li=AICTX&&AICTX.li!=null?AICTX.li:null;
+  const ck=map+'|'+(li==null?'b':li),key=li==null?'b':(WD?WD.season+'|'+WD.day+'|'+(WD.gvV||0):'');const c=AISL[ck];if(c&&c.key===key)return c.S;
+  let S;try{S=aiLearnS(B,map,li)}catch(e){console.error('aiLearnS',e);S=B}AISL[ck]={key,S};return S};
+function aiLearnS(B,map,li){const mp=B.mp,W=mp.W,H=mp.H,C=mp.C,svx={};
+  const cellOf=k=>{const[a,b]=k.split(',').map(Number);let best=null;for(let dy=0;dy<3;dy++)for(let dx=0;dx<3;dx++){const x=a*3+dx,y=b*3+dy;if(x<1||y<1||x>=W-1||y>=H-1||!B.ok(x,y)||!B.clear(x,y))continue;const d=Math.hypot(dx-1,dy-1);if(!best||d<best[2])best=[x,y,d]}return best};
+  const good=g=>{const L=[];if(g)for(const k in g)if(gvOk(g[k])){const c=cellOf(k);if(c)L.push([c[0],c[1],g[k]])}const v=s=>(s[0]+.5)/(s[1]+1);return L.sort((a,b)=>v(b[2])-v(a[2]))};
+  const LC=li==null?[]:good(gvOf(li,map,'CT')),LT=li==null?[]:good(gvOf(li,map,'T'));
+  const ext=(e,inner,ex)=>{const holds=e.holds.slice(),h0=holds.length;
+    for(const[x,y,s]of LC){if(holds.length-h0>=GV.maxL)break;const z=B.zone(x,y);if(z===e.from||(ex&&ex.includes(z)))continue;const d=Math.hypot(x-e.c[0],y-e.c[1])*C;if(d<48||d>230||B.DC[y*W+x]>=1e9)continue;
+      if(z!==inner&&B.zT(z)<B.zT(e.from)-.02)continue;if(holds.some(h=>Math.hypot(h[0]-x,h[1]-y)*C<26))continue;if(!B.los([x,y],e.c))continue;
+      const h=[x,y,Math.round(Math.atan2(e.c[1]-y,e.c[0]-x)*180/Math.PI)];h.lr=1;holds.push(h);svx[x+','+y]=[s[0],s[1]]}
+    const checks=e.checks.slice(),c0=checks.length;
+    for(const[x,y]of LT){if(checks.length-c0>=GV.maxL)break;if(B.zone(x,y)!==e.from)continue;const d=Math.hypot(x-e.c[0],y-e.c[1])*C;if(d<20||d>100||B.DT[y*W+x]>=1e9)continue;if(checks.some(q=>Math.hypot(q[0]-x,q[1]-y)*C<20))continue;if(!B.los([x,y],e.c))continue;
+      const q=[x,y,Math.round(Math.atan2(e.c[1]-y,e.c[0]-x)*180/Math.PI)];q.lr=1;checks.push(q)}
+    const cks=checks.map(q=>{const r=q.slice();if(q.lr)r.lr=1;r.vis=holds.filter(h=>B.los([q[0],q[1]],h));return r});
+    return Object.assign({},e,{holds,checks:cks})};
+  const ent={};for(const s in B.ent)ent[s]=B.ent[s].map(e=>ext(e,s,null));
+  const front=B.front.map(f=>ext(f,f.to,B.SITES));
+  return Object.assign({},B,{ent,front,svx,base:B})}
+/* aiNearMap (kobler drab til de faste holdepladser) bruger altid grundlisten */
+{const _nm=aiNearMap;aiNearMap=function(map){const pv=AICTX;AICTX=null;try{return _nm(map)}finally{AICTX=pv}}}
+/* lærte CT-pladser får værdi fra gitteret, så CT's holdevalg også kan vælge dem */
+{const _sv=aiSV;aiSV=function(map){const v=_sv(map),S=aiSpots(map),x=S&&S.svx;if(!x||!Object.keys(x).length)return v;return Object.assign({},x,v||{})}}
+/* vinkeltjek: vælger tjekpunkt og retning for én T-spiller ved indgang e. TJ deler planen mellem spillerne i samme taktik */
+function aiTjek(map,S,e,TJ){const vis=c=>c.vis||e.holds.filter(h=>S.los?S.los([c[0],c[1]],h):true);
+  let P=TJ.get(e);if(!P){const sv=aiSV(map),H=[];for(const c of e.checks)for(const h of vis(c))if(!H.includes(h))H.push(h);
+    const w=H.map(h=>{const s=sv&&sv[h[0]+','+h[1]];return s?s[0]+s[1]:0}),tot=w.reduce((a,b)=>a+b,0);let mode,list;
+    if(!H.length){mode='none';list=[]}
+    else if(tot<GV.dirMin){mode=aiR()<.5?'stack':'spread';list=H.slice().sort(()=>aiR()-.5)}
+    else{const o=H.map((h,i)=>[h,w[i],aiR()]).sort((a,b)=>b[1]-a[1]||a[2]-b[2]);mode=o[0][1]/tot>GV.stack?'stack':'spread';list=o.map(x=>x[0])}
+    P={mode,list,n:0};TJ.set(e,P)}
+  const h=P.mode==='none'?null:P.mode==='stack'?P.list[0]:P.list[P.n++%P.list.length];
+  const gT=AICTX&&AICTX.li!=null?gvOf(AICTX.li,map,'T'):null,tw=c=>{const s=gT&&gT[(c[0]/3|0)+','+(c[1]/3|0)];return s?Math.pow((s[0]+.5)/(s[1]+1),2):1};
+  const Cs=h?e.checks.filter(c=>vis(c).includes(h)):[],ck=aiWP(Cs.length?Cs:e.checks,tw);
+  return{ck,dir:h?aiDir(ck,h):null,mode:P.mode}}
+/* logning i gitteret */
+{const _st3=CSM2D.step;CSM2D.step=function(R){const n0=R.events.length,o=_st3.apply(this,arguments);try{if(R.events.length>n0&&!R.opt.preview&&typeof M!=='undefined'&&M&&M.defs&&WD){const map=M.map||CUR;if(E2D_MAPS[map]){
+   const li=txLiOf(M.defs[0])[0];if(li!=null){const mp=R.M,G=((WD.gv=WD.gv||{})[li]=WD.gv[li]||{})[map]=WD.gv[li][map]||{CT:{},T:{}};
+    for(let i=n0;i<R.events.length;i++){const e=R.events[i];if(e.type!=='kill'||!e.k)continue;for(const[p,j]of[[e.k,0],[e.v,1]]){if(!p)continue;let ok=false;
+      if(p.side==='CT')ok=(p.still||0)>=GV.still;else{const q=p.route&&p.route[p.ri];ok=!!q&&q.t==='sync'&&Math.hypot(p.x-q.x,p.y-q.y)<=mp.C*2}
+      if(!ok)continue;const g=G[p.side]=G[p.side]||{},k=wpKey(mp,p),a=g[k]=g[k]||[0,0];a[j]++;WD.gvV=(WD.gvV||0)+1}}}}}}catch(err){}return o}}
+{const _se3=txSeason;txSeason=function(){const r=_se3.apply(this,arguments);try{if(WD.gv)for(const li in WD.gv)for(const m in WD.gv[li])for(const sd in WD.gv[li][m]){const G=WD.gv[li][m][sd];for(const k in G){const a=G[k];a[0]=Math.floor(a[0]*.5);a[1]=Math.floor(a[1]*.5);if(!a[0]&&!a[1])delete G[k]}}}catch(e){}return r}}
+{const _rf3=renderFaq;renderFaq=function(){_rf3();try{const f=$('fq'),h=f&&[...f.querySelectorAll('h3')].find(x=>x.textContent==='2D-motor (de_dust2 og de_inferno)');
+  if(h&&h.parentElement)h.parentElement.insertAdjacentHTML('beforeend',`<div style="padding:3px 0"><b>AI og vinkeltjek:</b> AI-holdenes T-taktikker stopper ved et syncpoint før indgangen til sitet og kigger mod de pladser, CT i ligaen oftest står på. Står CT næsten altid ét sted, kigger alle der (stack-tjek). Ellers tager hver spiller sin egen vinkel (spredt tjek). Sync-tid: rush 2 sek., exec 2–6 sek., sent hit 2–8 sek. Drab og dødsfald for CT, der holder stille, og for T ved syncpoints logges pr. liga og map. Et sted med mindst ${GV.min} kampe og mindst lige så mange drab som dødsfald bliver en ny holdeplads (CT) eller et nyt tjekpunkt (T), som AI'en kan bruge. Tallene halveres ved hver ny sæson.</div>`)}catch(e){}}}
+
 
 }
