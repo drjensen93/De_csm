@@ -6,7 +6,7 @@
 // Antal kandidater, holdet overvejer, og hvor præcist det dømmer, afhænger af holdets taktiske evne (tcq).
 // Viden er pr. liga (WD.tk): resultater for taktik mod taktik i ligaens kampe (CL-kampe tæller i begge holds ligaer).
 // Egne taktikker gemmes i WD.tx og ryddes op ved sæsonskiftet, når intet hold bruger dem længere.
-const TXC={own:.04,lib:8,sel:5,ex:1,exKO:.4,evalN:30,pMut:.4,pNew:.25,pCounter:.15,decay:.5,kMax:900,kMin:1.5,stdW:30};
+const TXC={own:.04,lib:8,sel:6,ex:1,exKO:.4,evalN:30,pMut:.4,pNew:.25,pCounter:.15,decay:.5,kMax:900,kMin:1.5,stdW:30};
 let TXON=true;
 const txStdL=(map,sd)=>{const m=MAPS[map];return(m&&m.tn?m.tn:TN)[sd]};// mappets standardtaktikker (uafhængigt af Taktik-fanens visning)
 const txR=()=>rnd(),txPick=a=>a[Math.floor(txR()*a.length)],txG=()=>{let s=0;for(let i=0;i<6;i++)s+=txR();return(s-3)/1.4};
@@ -67,7 +67,7 @@ function txStdMed(d,map,sd,O){const v=txStdL(map,sd).filter(n=>txInfo(map,sd,n))
 const txMarg=(d,map,c)=>{const s=(d.tst&&d.tst[map]&&d.tst[map][c])||[0,0];return TXQ.margK/Math.sqrt(s[1]+20)};
 function txProven(d,map,sd,n){const S=d.tst&&d.tst[map]||{},s=S[n];if(!s||s[1]<TXQ.ownN)return false;let w=0,k=0;txStdL(map,sd).forEach(x=>{const t=S[x];if(t){w+=t[0];k+=t[1]}});const base=k>=20?w/k:.5;return s[0]/s[1]>=base}
 function txChoose(d,map,sd,opp){const li=txLiOf(d)[0],q=tcq(d),os=sd==='T'?'CT':'T',O=opp&&opp.length?opp:txMeta(li,map,os);let L=d.tl[map][sd].filter(n=>txInfo(map,sd,n));
- if(!L.length)L=txStdL(map,sd).slice(0,5);
+ if(!L.length)L=txStdL(map,sd).slice(0,TXC.sel);
  /* egne taktikker foretrækkes (7. nov.): +TXC.own i vurderingen; svage hold trækker egne først. Standarderne er reserve. */
  const own=n=>!txIsStd(map,sd,n);
  L=q<QG.mid?L.map(n=>[n,txR()+(own(n)?.6:0)]).sort((a,b)=>b[1]-a[1]).slice(0,TXC.sel).map(x=>x[0]):L.map(n=>[n,txVal(li,map,sd,n,O)+(own(n)&&txProven(d,map,sd,n)?TXC.own:0)+txFit(d,map,sd,n)+txG()*.04*(1.5-q)]).sort((a,b)=>b[1]-a[1]).slice(0,TXC.sel).map(x=>x[0]);

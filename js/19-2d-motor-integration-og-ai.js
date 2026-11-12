@@ -657,7 +657,10 @@ function aiBuildT2(map,opt){const S=aiSpots(map);opt=opt||{};const site=opt.site
 
 
 /* ===== 11. nov.: tidligt stop af dårlige kandidater, T-klodser i flere faser ===== */
-const TXE={n:15,gap:.10};// 1) kandidat droppes efter TXE.n runder, hvis den vinder TXE.gap under holdets standarder på samme map og side
+const TXE={n:15,gap:.10};
+/* 12. nov.: en kopieret kandidat har allerede vist sig hos et andet hold – den testes kun i TXC.evalKopi runder */
+TXC.evalKopi=12;
+{const _evK=txEval;txEval=function(d,map,sd){const k=d.tch&&d.tch[map]&&d.tch[map][sd]==='kopi'&&d.tc&&d.tc[map]&&d.tc[map][sd];if(!k)return _evK(d,map,sd);const o=TXC.evalN;TXC.evalN=TXC.evalKopi;try{return _evK(d,map,sd)}finally{TXC.evalN=o}}}// 1) kandidat droppes efter TXE.n runder, hvis den vinder TXE.gap under holdets standarder på samme map og side
 {const _ev3=txEval;txEval=function(d,map,sd){try{const c=d.tc&&d.tc[map]&&d.tc[map][sd];if(c){const S=d.tst&&d.tst[map]||{},s=S[c]||[0,0];
    if(s[1]>=TXE.n&&s[1]<TXC.evalN){let w=0,k=0;txStdL(map,sd).forEach(x=>{const t=S[x];if(t){w+=t[0];k+=t[1]}});const base=k>=20?w/k:null;
      if(base!=null&&s[0]/s[1]<base-TXE.gap){WD.txStop=(WD.txStop||0)+1;if(d.tct&&d.tct[map])d.tct[map][sd]=null;return txNewCand(d,map,sd)}}}}catch(e){console.error('txEval3',e)}

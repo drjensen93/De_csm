@@ -76,7 +76,7 @@ const TT={'A-rush':()=>F5('A'),'B-rush':()=>F5('B'),
 'B-fake til A':()=>[[['TB'],['MID',60],['CON',68],['A',76]],[['TB'],['MID',60],['CON',68],['A',76]],[['MID'],['CON',55],['A',68]],[['CON'],['A',70]],[['MID'],['CON',58],['A',70]]],
 '3A-2B':()=>[[['A']],[['A']],[['MID'],['TB',30],['B',50]],[['CON'],['B',60]],[['A',20]]],'2A-3B':()=>[[['B']],[['B']],[['MID'],['LA',30],['A',50]],[['CON'],['A',60]],[['B',20]]]};
 // T-taktikker: index = rolle (Entry, Support, Mid-kontrol, Lurker, Anker)
-const TSITE={'A-rush':'A','B-rush':'B','A-fake til B':'B','B-fake til A':'A','3A-2B':'A','2A-3B':'B'},MAXSEL=5;
+const TSITE={'A-rush':'A','B-rush':'B','A-fake til B':'B','B-fake til A':'A','3A-2B':'A','2A-3B':'B'},MAXSEL=6;
 // beskrivelse pr. T-rolle (Entry, Support, Mid-kontrol, Lurker, Anker)
 const TDESC={
 'A-rush':['Løber direkte til A og tager første duel.','Følger tæt efter og planter bomben på A.','Løber direkte til A sammen med holdet.','Løber direkte til A sammen med holdet.','Går direkte til A og holder sitet efter plant.'],
