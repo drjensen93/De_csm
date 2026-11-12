@@ -110,9 +110,13 @@ function mapImage(mp){const{W,H,C}=mp,S=1024;
   // væg-streger (fx kanten mellem Xbox og Catwalk) tegnes som mørk væg, ikke som hul
   const wl=new Uint8Array(W*H);for(const f of mp.J.features||[]){if(f.type!=='wall'||f.rail)continue;const[a,b,c2,d]=f.line,n=Math.max(2,Math.ceil(Math.hypot(c2-a,d-b)/2));
     for(let i=0;i<=n;i++){const px=a+(c2-a)*i/n,py=b+(d-b)*i/n,k=Math.floor(py/C)*W+Math.floor(px/C);if(k>=0&&k<W*H&&!mp.walk[k]){wl[k]=1;out[k]=0}}}
+  /* smalle rektangler i omridset (højst 12 px på den ene led) er vægge, ikke huller: de tegnes som mørk væg oven på gulv og vand (12. nov.) */
+  const wrR=P=>{if(!Array.isArray(P)||P.length!==8)return null;const X=[P[0],P[2],P[4],P[6]],Y=[P[1],P[3],P[5],P[7]];if(new Set(X).size!==2||new Set(Y).size!==2)return null;
+    const r=[Math.min(...X),Math.min(...Y),Math.max(...X),Math.max(...Y)];return Math.min(r[2]-r[0],r[3]-r[1])<=12?r:null};
+  for(const P of mp.J.outline||[]){const r=wrR(P);if(!r)continue;for(let y=Math.floor(r[1]/C);y<Math.ceil(r[3]/C);y++)for(let x0=Math.floor(r[0]/C);x0<Math.ceil(r[2]/C);x0++){const k=y*W+x0;if(k>=0&&k<W*H&&!mp.walk[k]){wl[k]=1;out[k]=0}}}
   let fl;if(mp.J.outline){// omrids som polygoner: lige vægge og skarpe hjørner
     const o=document.createElement('canvas');o.width=S;o.height=S;const g=o.getContext('2d');g.fillStyle='#000';g.beginPath();
-    for(const P of mp.J.outline){g.moveTo(P[0],P[1]);for(let i=2;i<P.length;i+=2)g.lineTo(P[i],P[i+1]);g.closePath()}g.fill('evenodd');
+    for(const P of mp.J.outline){if(wrR(P))continue;g.moveTo(P[0],P[1]);for(let i=2;i<P.length;i+=2)g.lineTo(P[i],P[i+1]);g.closePath()}g.fill('evenodd');
     for(const f of mp.J.features||[])if(f.type==='stairs'&&f.arc){const[cx,cy,r0,r1,a0,a1]=f.arc;g.beginPath();g.moveTo(cx,cy);g.arc(cx,cy,r1,(a0-2)*Math.PI/180,(a1+2)*Math.PI/180);g.closePath();g.fill()}
     fl=g.getImageData(0,0,S,S).data}
   else fl=up(d=>{for(let k=0;k<W*H;k++)d[k*4+3]=out[k]?0:255});           // gulv inkl. kasser
