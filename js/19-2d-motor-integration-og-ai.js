@@ -276,15 +276,15 @@ function draw2D(){requestAnimationFrame(draw2D);const wrap=$('e2w');if(wrap&&wra
   const r=cv2.getBoundingClientRect(),dpr=window.devicePixelRatio||1;if(cv2.width!==Math.round(r.width*dpr)){cv2.width=Math.round(r.width*dpr);cv2.height=Math.round(r.height*dpr)}
   const s=cv2.width/1024;ctx2.setTransform(s,0,0,s,0,0);ctx2.clearRect(0,0,1024,1024);ctx2.drawImage(img2,0,0);
   const a=paused||R2.over?1:Math.min(1,(performance.now()-lastTickAt)/TICK_MS);
-  for(const t of R2.tracers){const al=1-(R2.t-t.t)/0.25;ctx2.strokeStyle=t.side==='T'?`rgba(255,200,90,${al*.8})`:`rgba(120,190,255,${al*.8})`;ctx2.lineWidth=t.hit?1.6:.8;ctx2.beginPath();ctx2.moveTo(t.a[0],t.a[1]);ctx2.lineTo(t.b[0],t.b[1]);ctx2.stroke()}
+  for(const t of R2.tracers){const al=1-(R2.t-t.t)/0.25;ctx2.strokeStyle=t.side==='T'?`rgba(255,110,95,${al*.8})`:`rgba(120,190,255,${al*.8})`;ctx2.lineWidth=t.hit?1.6:.8;ctx2.beginPath();ctx2.moveTo(t.a[0],t.a[1]);ctx2.lineTo(t.b[0],t.b[1]);ctx2.stroke()}
   for(const n of R2.nades){ctx2.fillStyle='#9fe870';ctx2.beginPath();ctx2.arc(n.x,n.y,4,0,7);ctx2.fill()}
   for(const b of R2.booms){const al=1-(R2.t-b.t)/0.6;ctx2.fillStyle=`rgba(255,170,60,${al*.45})`;ctx2.beginPath();ctx2.arc(b.x,b.y,E.CFG.heRadius*(1-al*.3),0,7);ctx2.fill()}
   if(R2.bomb){ctx2.fillStyle=(Math.floor(R2.t*2)%2)?'#ff4d40':'#7a1d18';ctx2.fillRect(R2.bomb.x-6,R2.bomb.y-6,12,12)}
   if(R2.dropped){ctx2.fillStyle='#ff8a3d';ctx2.fillRect(R2.dropped.x-5,R2.dropped.y-5,10,10)}
   const me=myIdx(),names=$('e2names')&&$('e2names').checked;
   for(const p of R2.P){if(!p.alive)continue;const x=p.prx+(p.x-p.prx)*a,y=p.pry+(p.y-p.pry)*a;let fd=p.face-(p.prf!=null?p.prf:p.face);fd=Math.atan2(Math.sin(fd),Math.cos(fd));
-    ctx2.globalAlpha=p.layer&&p.layer===(mp.lowAx?mp.lowAx[mp.cellOf(p.x,p.y)[1]*mp.W+mp.cellOf(p.x,p.y)[0]]:(mp.J.lowLayer||1))?0.4:1;drawCone(ctx2,mp,x,y,p.face-fd*(1-a),p.fovA||(E.CFG.fov+0.24*60)*Math.PI/180,CONE_R,p.side==='T'?'224,168,63':'88,168,230');ctx2.globalAlpha=1}
-  for(const p of R2.P){const x=p.prx+(p.x-p.prx)*a,y=p.pry+(p.y-p.pry)*a;const col=p.side==='T'?'#e0a83f':'#58a8e6';
+    ctx2.globalAlpha=p.layer&&p.layer===(mp.lowAx?mp.lowAx[mp.cellOf(p.x,p.y)[1]*mp.W+mp.cellOf(p.x,p.y)[0]]:(mp.J.lowLayer||1))?0.4:1;drawCone(ctx2,mp,x,y,p.face-fd*(1-a),p.fovA||(E.CFG.fov+0.24*60)*Math.PI/180,CONE_R,p.side==='T'?'224,69,58':'88,168,230');ctx2.globalAlpha=1}
+  for(const p of R2.P){const x=p.prx+(p.x-p.prx)*a,y=p.pry+(p.y-p.pry)*a;const col=p.side==='T'?'#e0453a':'#58a8e6';
     if(!p.alive){ctx2.strokeStyle=col+'99';ctx2.lineWidth=2;ctx2.beginPath();ctx2.moveTo(x-5,y-5);ctx2.lineTo(x+5,y+5);ctx2.moveTo(x+5,y-5);ctx2.lineTo(x-5,y+5);ctx2.stroke();continue}
     ctx2.globalAlpha=p.layer&&p.layer===(mp.lowAx?mp.lowAx[mp.cellOf(p.x,p.y)[1]*mp.W+mp.cellOf(p.x,p.y)[0]]:(mp.J.lowLayer||1))?0.38:1;// nederste lag i en krydsning (fx CT-tunnelen under Short)
         ctx2.strokeStyle=p.ref&&p.ref.ti===me?'#ffffff':'#0b0e10';ctx2.lineWidth=1.5;ctx2.fillStyle=col;ctx2.beginPath();ctx2.arc(x,y,8,0,7);ctx2.fill();ctx2.stroke();

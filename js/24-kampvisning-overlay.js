@@ -4,10 +4,10 @@
 (function(){
   const FEED_MS=4000;
   const css=document.createElement('style');
-  css.textContent=`#e2feed{position:absolute;top:6px;right:6px;max-width:72%;display:flex;flex-direction:column;align-items:flex-end;gap:3px;pointer-events:none;z-index:2}
-#e2feed div{background:rgba(12,15,20,.72);color:#fff;font-size:12px;line-height:1.3;padding:3px 7px;border-radius:3px;text-align:right;transition:opacity .4s}
-#e2feed div.ct b,#e2feed div.ct .k{color:#7cc0ff}#e2feed div.t b,#e2feed div.t .k{color:#ffc76a}
-#e2feed .ct{color:#7cc0ff}#e2feed .t{color:#ffc76a}
+  css.textContent=`#e2feed{position:absolute;top:6px;right:6px;max-width:60%;display:flex;flex-direction:column;align-items:flex-end;gap:1px;pointer-events:none;z-index:2}
+#e2feed div{color:#fff;font-size:10px;font-weight:700;line-height:1.25;padding:0 2px;text-align:right;text-shadow:0 0 2px #000,0 0 2px #000,0 0 1px #000;transition:opacity .4s}
+#e2feed div.ct b,#e2feed div.ct .k{color:#7cc0ff}#e2feed div.t b,#e2feed div.t .k{color:#ff6a5c}
+#e2feed .ct{color:#7cc0ff}#e2feed .t{color:#ff6a5c}
 #e2stats{position:absolute;inset:0;display:none;background:rgba(12,15,20,.72);color:#fff;font-size:12px;padding:10px;overflow:auto;z-index:3}
 #e2stats h4{margin:0 0 8px;font-size:15px;text-align:center}
 #e2stats table{width:100%;border-collapse:collapse;margin-bottom:10px}
@@ -34,7 +34,7 @@
   let lastKey='';
   function statsHTML(){const pr=(R&&R.e2&&R.e2.P)||[],hp=p=>{const e=pr.find(q=>q.ref===p);return e?Math.max(0,Math.round(e.hp)):(p.alive?100:0)};
     const[a,b]=M.score;let h=`<h4>${M.teams[0].name} ${a} – ${b} ${M.teams[1].name}</h4>`;
-    for(const t of M.teams){const col=t.side==='CT'?'#7cc0ff':'#ffc76a';
+    for(const t of M.teams){const col=t.side==='CT'?'#7cc0ff':'#ff6a5c';
       h+=`<table><tr><th class="tn" style="color:${col}">${t.name} · ${t.side}</th><th>K</th><th>D</th><th>A</th><th>HP</th><th>$</th></tr>`;
       for(const p of t.ps.slice().sort((x,y)=>y.k-x.k||x.d-y.d)){const v=hp(p);h+=`<tr class="${v>0?'':'dead'}"><td>${p.name}</td><td>${p.k}</td><td>${p.d}</td><td>${p.a}</td><td>${v}</td><td>${p.money}</td></tr>`}
       h+='</table>'}
