@@ -211,7 +211,10 @@ function canSee(R,a,b){const M=R.M;const i=a.ci,j=b.ci;if(i===j)return!(M.cross[
   /* sigt langs det nederste lag gennem en krydsning: et endepunkt uden for krydsningen skal ligge i det nederste lags højde (fx ikke fra Short ned gennem tunnelen) */
   if(M.hasCross&&M.J.lowLayerH!=null){const W=M.W,ax=i%W,ay=(i/W)|0,bx=j%W,by=(j/W)|0,dx=Math.abs(bx-ax),dy=Math.abs(by-ay),axis=dx>=dy?1:2;
     {const n=Math.max(dx,dy);let thr=false;for(let k=1;k<n;k++){const cx=Math.round(ax+(bx-ax)*k/n),cy=Math.round(ay+(by-ay)*k/n),ci=cy*W+cx;if(M.cross[ci]&&M.lowAx[ci]===axis){thr=true;break}}
-      if(thr){const LH=M.J.lowLayerH;if(!M.cross[i]&&Math.abs(M.height[i]-LH)>2)return false;if(!M.cross[j]&&Math.abs(M.height[j]-LH)>2)return false}}}
+      if(thr){const LH=M.J.lowLayerH;if(!M.cross[i]&&Math.abs(M.height[i]-LH)>2)return false;if(!M.cross[j]&&Math.abs(M.height[j]-LH)>2)return false}}
+    /* hen over et dæk med "see" (fx Catwalk) fra et sted uden for dækket: man ser ikke ned i vandet på den anden side (fx fra Mid gennem Catwalk) (12. nov.) */
+    if(!M.cross[i]&&!M.cross[j]){const LH=M.J.lowLayerH,hi=M.height[i],hj=M.height[j];if(Math.min(hi,hj)<=LH&&Math.abs(hi-hj)>=2){const n=Math.max(dx,dy);
+      for(let k=1;k<n;k++){const cx=Math.round(ax+(bx-ax)*k/n),cy=Math.round(ay+(by-ay)*k/n),ci=cy*W+cx;if(M.cross[ci]&&((M.J.crossings||[])[M.crossIx[ci]]||{}).see)return false}}}}
   return true}
 
 
