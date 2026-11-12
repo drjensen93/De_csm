@@ -47,10 +47,13 @@ function makeMap(J){
   // trapper: ingen kant-regel i feltet
   for(const L of J.stairs||[]){const[x0,y0,x1,y1]=L.rect;for(let y=Math.floor(y0/C);y<=Math.floor(y1/C);y++)for(let x=Math.floor(x0/C);x<=Math.floor(x1/C);x++)if(x>=0&&y>=0&&x<W&&y<H)M.cliffT[y*W+x]=99}
   M.ok=(x,y)=>x>=0&&y>=0&&x<W&&y<H&&walk[y*W+x]===1;
+  M.blind=new Uint8Array(W*H);M.blindR=new Uint8Array(W*H);for(const B of J.blind||[]){const[x0,y0,x1,y1]=B.rect;for(let y=Math.floor(y0/C);y<=Math.floor(y1/C);y++)for(let x=Math.floor(x0/C);x<=Math.floor(x1/C);x++)if(x>=0&&y>=0&&x<W&&y<H&&walk[y*W+x]&&(!B.areas||B.areas.includes(cells[y*W+x]))&&height[y*W+x]>=(B.minH||0)){M.blind[y*W+x]=1;M.blindR[y*W+x]=B.r||6}}
   /* hegn/kanter med "see": spærrer for passage, men ikke for sigt (fx B's hævede bagende på dust2). Kasser langs hegnet blokerer stadig. */
   M.glass=new Uint8Array(W*H);for(const f of J.features||[]){if(!f.see||!(f.line||f.arc))continue;const A=f.arc,[x0,y0,x1,y1]=f.line||[0,0,0,0],n=A?Math.ceil(A[2]*Math.PI*Math.abs(A[4]-A[3])/180/(C/4))+1:Math.ceil(Math.hypot(x1-x0,y1-y0)/(C/4))+1;
     for(let k=0;k<=n;k++){const an=A?(A[3]+(A[4]-A[3])*k/n)*Math.PI/180:0;for(const dr of A?[0,-4,-7]:[0]){if(A&&dr&&(k<n*.08||k>n*.92))continue;const px=A?A[0]+(A[2]+dr)*Math.cos(an):x0+(x1-x0)*k/n,py=A?A[1]+(A[2]+dr)*Math.sin(an):y0+(y1-y0)*k/n,cx=Math.floor(px/C),cy=Math.floor(py/C);if(cx<0||cy<0||cx>=W||cy>=H)continue;const ci=cy*W+cx;if(walk[ci])continue;
       if((J.boxes||[]).some(b=>Math.min(b[2],cx*C+C)-Math.max(b[0],cx*C)>2&&Math.min(b[3],cy*C+C)-Math.max(b[1],cy*C)>2))continue;M.glass[ci]=1}}}
+  /* seeRects: vægfelter, man kan se hen over (lave hegn, rækværk, tynde søjler), men ikke gå igennem. minH: kun når begge ender står i mindst den højde (fx kanten om Pit) */
+  for(const B of J.seeRects||[]){const[x0,y0,x1,y1]=B.rect;for(let y=Math.floor(y0/C);y<=Math.floor(y1/C);y++)for(let x=Math.floor(x0/C);x<=Math.floor(x1/C);x++)if(x>=0&&y>=0&&x<W&&y<H&&!walk[y*W+x]){M.glass[y*W+x]=1;if(B.minH){M.seeH=M.seeH||new Uint8Array(W*H);M.seeN=M.seeN||new Uint8Array(W*H);M.seeH[y*W+x]=B.minH;M.seeN[y*W+x]=B.near||0}}}
   M.okL=(x,y)=>M.ok(x,y)||(x>=0&&y>=0&&x<W&&y<H&&M.glass[y*W+x]===1);
   M.cellOf=(px,py)=>[Math.min(W-1,Math.max(0,Math.floor(px/C))),Math.min(H-1,Math.max(0,Math.floor(py/C)))];
   M.areaAt=(px,py)=>{const[x,y]=M.cellOf(px,py);return cells[y*W+x]};
@@ -88,13 +91,18 @@ function smooth(M,p){const W=M.W,out=[p[0]];let i=0;while(i<p.length-1){let j=i+
     while(j+1<p.length&&j-i<40&&losCells(M,ax,ay,p[j+1]%W,(p[j+1]/W)|0,true))j++;out.push(p[j]);i=j}
   return out.map(c=>[(c%W)*M.C+M.C/2,((c/W)|0)*M.C+M.C/2])}
 // sigtelinje i gitteret (supercover). strict: også ingen hjørner (bruges til gang)
-function losCells(M,ax,ay,bx,by,strict){let x=ax,y=ay,pi=ay*M.W+ax;const dx=Math.abs(bx-ax),dy=Math.abs(by-ay),sx=bx>ax?1:-1,sy=by>ay?1:-1;let ix=0,iy=0;
+function losCells(M,ax,ay,bx,by,strict){let x=ax,y=ay,pi=ay*M.W+ax;const bE=!strict&&M.blind&&(M.blind[ay*M.W+ax]||M.blind[by*M.W+bx]),bR=bE?Math.max(M.blindR[ay*M.W+ax],M.blindR[by*M.W+bx]):0;let hitB=false;const dx=Math.abs(bx-ax),dy=Math.abs(by-ay),sx=bx>ax?1:-1,sy=by>ay?1:-1;let ix=0,iy=0;
   while(ix<dx||iy<dy){const a=(0.5+ix)/dx,b=(0.5+iy)/dy;
     const ok=strict||!M.okL?M.ok:M.okL;
     if(dx&&(!dy||a<b)){x+=sx;ix++}else if(dy&&(!dx||b<a)){y+=sy;iy++}else{if(!ok(x+sx,y)||!ok(x,y+sy))return false;x+=sx;y+=sy;ix++;iy++}
     if(!ok(x,y))return false;
+    if(!strict&&M.seeH&&M.seeH[y*M.W+x]&&Math.min(M.height[ay*M.W+ax],M.height[by*M.W+bx])<M.seeH[y*M.W+x]){/* lav kant: kun til at se hen over oppefra, og kun når den, der står oppe, er højst near felter fra kanten */
+      const ci=y*M.W+x,hA=M.height[ay*M.W+ax]>=M.seeH[ci],hB=M.height[by*M.W+bx]>=M.seeH[ci],n=M.seeN[ci],nr=(px,py)=>Math.max(Math.abs(px-x),Math.abs(py-y))<=n;
+      if(!n||!((hA&&nr(ax,ay))||(hB&&nr(bx,by))))return false}
+    if(!strict&&M.blind&&M.blind[y*M.W+x]&&(x!==bx||y!==by)){if(!bE)return false;hitB=true}/* blinde felter (fx vindeltrappen): kan gås igennem, men ikke ses igennem. Står man selv på dem, ser man kort ud (blindR felter) */
     if(strict&&M.cross&&M.cross[y*M.W+x])return false;
     if(strict&&M.cliff){const ci=y*M.W+x;if(Math.abs(M.height[ci]-M.height[pi])>=Math.min(M.cliffT[ci],M.cliffT[pi]))return false;pi=ci}}
+  if(hitB&&(bx-ax)*(bx-ax)+(by-ay)*(by-ay)>bR*bR)return false;
   return true}
 
 // ---------- hold og taktikker ----------
