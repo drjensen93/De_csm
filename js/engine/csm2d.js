@@ -183,7 +183,9 @@ function canSee(R,a,b){const M=R.M;const i=a.ci,j=b.ci;if(i===j)return!(M.cross[
      if(La&&!Lb&&La!==M.lowAx[i]&&LH!=null&&Math.abs(M.height[j]-LH)<=1&&!deckSide(M,i,j))return false;
      if(Lb&&!La&&Lb!==M.lowAx[j]&&LH!=null&&Math.abs(M.height[i]-LH)<=1&&!deckSide(M,j,i))return false}
     /* åben bro/catwalk (cross=2): fra dækket ser man til alle sider ned i vandet; under dækket kun langs vandet */
-    if(La&&La!==axis&&!(M.cross[i]===2&&La!==M.lowAx[i]&&!Lb&&deckSide(M,i,j)))return false;if(Lb&&Lb!==axis&&!(M.cross[j]===2&&Lb!==M.lowAx[j]&&!La&&deckSide(M,j,i)))return false}
+    /* lukket krydsning (fx Short over tunnelen): fra det øverste lag ser man til siden, bare ikke ned i det nederste lags gange */
+    const LHo=M.J.lowLayerH,upOk=(c,L,o)=>M.cross[c]===1&&L!==M.lowAx[c]&&LHo!=null&&!M.cross[o]&&M.height[o]>LHo;
+    if(La&&La!==axis&&!(M.cross[i]===2&&La!==M.lowAx[i]&&!Lb&&deckSide(M,i,j))&&!upOk(i,La,j))return false;if(Lb&&Lb!==axis&&!(M.cross[j]===2&&Lb!==M.lowAx[j]&&!La&&deckSide(M,j,i))&&!upOk(j,Lb,i))return false}
   /* sigt langs det nederste lag gennem en krydsning: et endepunkt uden for krydsningen skal ligge i det nederste lags højde (fx ikke fra Short ned gennem tunnelen) */
   if(M.hasCross&&M.J.lowLayerH!=null){const W=M.W,ax=i%W,ay=(i/W)|0,bx=j%W,by=(j/W)|0,dx=Math.abs(bx-ax),dy=Math.abs(by-ay),axis=dx>=dy?1:2;
     {const n=Math.max(dx,dy);let thr=false;for(let k=1;k<n;k++){const cx=Math.round(ax+(bx-ax)*k/n),cy=Math.round(ay+(by-ay)*k/n),ci=cy*W+cx;if(M.cross[ci]&&M.lowAx[ci]===axis){thr=true;break}}
@@ -290,6 +292,8 @@ function step(R){
   for(const h of hits){const t=h.t;if(!t.alive)continue;let d=h.dmg;
     if(!h.head&&t.armor>0&&h.w){const ap=(W[h.w]&&W[h.w].ap)??0.9,red=Math.min(d*(1-ap),t.armor);t.armor=Math.max(0,t.armor-Math.min(d*0.1,t.armor)*3.5);d-=red}
     const hp0=t.hp;t.hp-=d;t.hurtAt=R.t;t.dmgBy[h.s.id]=(t.dmgBy[h.s.id]||0)+Math.min(d,Math.max(0,hp0));
+    /* ramt: man ved, hvor skuddet kom fra, og vender sig hurtigt mod skytten (også mens man går) */
+    if(t.hp>0&&!h.he&&!t.fighting){t.hurtBy={x:h.s.x,y:h.s.y,until:R.t+2.5};t.faceT=angTo(t,h.s.x,h.s.y)}
     if(t.hp<=0){t.alive=false;t.hp=0;R._tc=null;h.s.kills++;R.feed.push({t:R.t,k:h.s.name,ks:h.s.side,v:t.name,vs:t.side,head:h.head,w:h.w?W[h.w].n:'HE-granat'});
       for(const q of teamOf(R,t.side))if(dist(q,t)<R.M.C*40)q.trade={id:h.s.id,until:R.t+3};
       R.events.push({type:'kill',k:h.s,v:t,w:h.w,head:h.head,he:!!h.he,assist:Object.keys(t.dmgBy).map(Number).filter(id=>id!==h.s.id&&t.dmgBy[id]>=25).map(id=>R.P[id]).filter(a=>a.side!==t.side)});
@@ -297,7 +301,7 @@ function step(R){
       if(t.defuse){R.defuse=null}if(R.plant&&R.plant.p===t)R.plant=null}}
   // 4) bevægelse og rutelogik
   for(const p of P)if(p.alive)move(R,p);
-  for(const p of P)if(p.alive)turn(p,dt);
+  for(const p of P)if(p.alive){if(p.hurtBy&&R.t>=p.hurtBy.until)p.hurtBy=null;turn(p,dt)}
   // 5) bombe
   if(R.planted){R.bombLeft-=dt;if(R.defuse){const d=R.defuse;if(!d.p.alive)R.defuse=null;else if((d.left-=dt)<=0){R.events.push({type:'defuse',p:d.p});return end(R,'CT','Bomben er desarmeret')}}
     if(R.bombLeft<=0)return end(R,'T','Bomben sprang')}
@@ -311,9 +315,17 @@ function step(R){
 function end(R,w,why){R.over=true;R.winner=w;R.why=why}
 
 /* synsfeltet drejer gradvist mod p.faceT (grader/sek.) */
-function turn(p,dt){if(p.faceT==null)return;let d=p.faceT-p.face;d=Math.atan2(Math.sin(d),Math.cos(d));const m=(p.fighting?CFG.turnFight:CFG.turnRate)*Math.PI/180*dt;p.face=Math.abs(d)<=m?p.faceT:p.face+Math.sign(d)*m}
+function turn(p,dt){if(p.faceT==null)return;let d=p.faceT-p.face;d=Math.atan2(Math.sin(d),Math.cos(d));const m=(p.fighting||p.hurtBy?CFG.turnFight:CFG.turnRate)*Math.PI/180*dt;p.face=Math.abs(d)<=m?p.faceT:p.face+Math.sign(d)*m}
 /* afterplant: hver T får en tilfældig, unik position blandt sitets 10 (postPlant i kortet) */
 function ppSpot(R,p){const L=R.M.J.postPlant&&R.bomb&&R.M.J.postPlant[R.bomb.site];if(!L||!L.length)return null;if(!R.ppA){R.ppA=new Map();const ix=L.map((_,i)=>i);for(let i=ix.length-1;i>0;i--){const j=Math.floor(R.r()*(i+1));const t=ix[i];ix[i]=ix[j];ix[j]=t}R.ppIx=ix}if(!R.ppA.has(p))R.ppA.set(p,L[R.ppIx[R.ppA.size%L.length]]);return R.ppA.get(p)}
+/* CT rydder sitet før defuse: afterplant-pladserne (hvor T typisk står) skal have været set af en CT, før han går hen til bomben – medmindre tiden er ved at løbe ud */
+function ctClear(R,p,spd){const M=R.M,L=M.J.postPlant&&R.bomb&&M.J.postPlant[R.bomb.site];if(!L||!L.length)return null;
+  const W=M.W,ci=c=>Math.floor(c[1]/M.C)*W+Math.floor(c[0]/M.C);if(!R.ppClr)R.ppClr=new Set();
+  const pc={ci:ci([p.x,p.y]),layer:p.layer||0};
+  for(const t of teamOf(R,'CT'))if(t.alive){const tc={ci:ci([t.x,t.y]),layer:t.layer||0};for(let i=0;i<L.length;i++)if(!R.ppClr.has(i)&&canSee(R,tc,{ci:ci(L[i]),layer:0}))R.ppClr.add(i)}
+  const need=dist(p,R.bomb)/(spd/CFG.dt)*1.3+CFG.defuseTime*(p.ref&&p.ref.kit?0.5:1)+2;if(R.bombLeft<need)return null;
+  let b=null,bd=1e9;for(let i=0;i<L.length;i++){if(R.ppClr.has(i))continue;const d=Math.hypot(p.x-L[i][0],p.y-L[i][1]);if(d<bd){bd=d;b=L[i]}}
+  return b}
 function move(R,p){
   const M=R.M,dt=CFG.dt;const spd=CFG.speed/M.upx*dt;
   const still0=p.x,still1=p.y;
@@ -329,7 +341,9 @@ function move(R,p){
       if(p.mode==='bomb'||p.ri>=p.route.length){p.mode='bomb';const rc=M.J.sites[R.site].rect;return walkTo(R,p,(rc[0]+rc[2])/2,(rc[1]+rc[3])/2,spd)}}
     if(R.planted){p.holdDir=angTo(p,R.bomb.x,R.bomb.y);if(p.ri>=p.route.length||dist(p,R.bomb)>M.C*28){const pt=ppSpot(R,p);if(pt){if(Math.hypot(p.x-pt[0],p.y-pt[1])>M.C*0.8)return walkTo(R,p,pt[0],pt[1],spd)}else if(dist(p,R.bomb)>M.C*10)return walkTo(R,p,R.bomb.x+(p.k-2)*14,R.bomb.y+(p.k%2?18:-18),spd)}}
   }else{
-    if(R.planted){if(dist(p,R.bomb)<M.C*0.9){if(!R.defuse&&!p.fighting)R.defuse={p,left:CFG.defuseTime};return}return walkTo(R,p,R.bomb.x,R.bomb.y,spd)}
+    if(R.planted){if(dist(p,R.bomb)<M.C*0.9){if(!R.defuse&&!p.fighting)R.defuse={p,left:CFG.defuseTime};return}
+      const cs=ctClear(R,p,spd);if(cs){walkTo(R,p,cs[0],cs[1],spd);if(!p.fighting)p.faceT=angTo(p,cs[0],cs[1]);return}
+      return walkTo(R,p,R.bomb.x,R.bomb.y,spd)}
   }
   // rute
   if(p.ri>=p.route.length){p.still+=dt;faceHold(R,p);return}
@@ -347,13 +361,13 @@ function move(R,p){
   p.ri++;p.arrivedAt=null;p.goal=null;p.syncAllAt=null;
   if(p.ri>=p.route.length&&o.dir==null)p.holdDir=p.faceT!=null?p.faceT:p.face;
 }
-function faceHold(R,p){if(p.fighting)return;if(p.heard&&R.t-p.heard.t<2.5){p.faceT=angTo(p,p.heard.x,p.heard.y);return}if(p.holdDir!=null)p.faceT=p.holdDir}
+function faceHold(R,p){if(p.fighting)return;if(p.hurtBy&&R.t<p.hurtBy.until){p.faceT=angTo(p,p.hurtBy.x,p.hurtBy.y);return}if(p.heard&&R.t-p.heard.t<2.5){p.faceT=angTo(p,p.heard.x,p.heard.y);return}if(p.holdDir!=null)p.faceT=p.holdDir}
 function walkTo(R,p,x,y,spd){
   if(!p.goal||p.goal[0]!==x||p.goal[1]!==y)setGoal(R,p,x,y);
   let left=spd;p.still=0;p.mvT=R.t;
   while(left>0&&p.pi<p.path.length){const[tx,ty]=p.path[p.pi];const d=Math.hypot(tx-p.x,ty-p.y);
     if(d<=left){p.x=tx;p.y=ty;left-=d;p.pi++}else{p.x+=(tx-p.x)/d*left;p.y+=(ty-p.y)/d*left;left=0}}
-  if(!p.fighting){const nx=p.x-p.px,ny=p.y-p.py;if(nx||ny)p.faceT=Math.atan2(ny,nx)}
+  if(p.hurtBy&&!p.fighting)p.faceT=angTo(p,p.hurtBy.x,p.hurtBy.y);else if(!p.fighting){const nx=p.x-p.px,ny=p.y-p.py;if(nx||ny)p.faceT=Math.atan2(ny,nx)}
   {const M=R.M;if(M.hasCross){const k=Math.floor(p.y/M.C)*M.W+Math.floor(p.x/M.C);if(M.cross[k]){const nx=p.x-p.px,ny=p.y-p.py;if(nx||ny)p.layer=Math.abs(nx)>=Math.abs(ny)?1:2}else p.layer=0}}
   return p.pi>=p.path.length;
 }

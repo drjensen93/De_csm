@@ -92,3 +92,11 @@ npm run build    # → dist/de_csm.html
 ```
 
 Samler CSS og alle scripts i én HTML-fil, fx til at lægge op som Claude-artefakt. Den samlede fil opfører sig identisk med den opdelte version.
+
+Har du ændret i den samlede fil (fx i artefaktet), deler denne kommando den ud i repoets filer igen:
+
+```
+node tools/unpack-single.js <samlet.html>
+```
+
+Den kræver, at markeringerne `/* ---- <fil> ---- */` i filen er bevaret, og tjekker bagefter, at en ny build giver præcis den samme fil.
