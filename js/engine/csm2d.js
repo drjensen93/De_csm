@@ -47,6 +47,11 @@ function makeMap(J){
   // trapper: ingen kant-regel i feltet
   for(const L of J.stairs||[]){const[x0,y0,x1,y1]=L.rect;for(let y=Math.floor(y0/C);y<=Math.floor(y1/C);y++)for(let x=Math.floor(x0/C);x<=Math.floor(x1/C);x++)if(x>=0&&y>=0&&x<W&&y<H)M.cliffT[y*W+x]=99}
   M.ok=(x,y)=>x>=0&&y>=0&&x<W&&y<H&&walk[y*W+x]===1;
+  /* hegn/kanter med "see": spærrer for passage, men ikke for sigt (fx B's hævede bagende på dust2). Kasser langs hegnet blokerer stadig. */
+  M.glass=new Uint8Array(W*H);for(const f of J.features||[]){if(!f.see||!(f.line||f.arc))continue;const A=f.arc,[x0,y0,x1,y1]=f.line||[0,0,0,0],n=A?Math.ceil(A[2]*Math.PI*Math.abs(A[4]-A[3])/180/(C/4))+1:Math.ceil(Math.hypot(x1-x0,y1-y0)/(C/4))+1;
+    for(let k=0;k<=n;k++){const an=A?(A[3]+(A[4]-A[3])*k/n)*Math.PI/180:0;for(const dr of A?[0,-4,-7]:[0]){if(A&&dr&&(k<n*.08||k>n*.92))continue;const px=A?A[0]+(A[2]+dr)*Math.cos(an):x0+(x1-x0)*k/n,py=A?A[1]+(A[2]+dr)*Math.sin(an):y0+(y1-y0)*k/n,cx=Math.floor(px/C),cy=Math.floor(py/C);if(cx<0||cy<0||cx>=W||cy>=H)continue;const ci=cy*W+cx;if(walk[ci])continue;
+      if((J.boxes||[]).some(b=>Math.min(b[2],cx*C+C)-Math.max(b[0],cx*C)>2&&Math.min(b[3],cy*C+C)-Math.max(b[1],cy*C)>2))continue;M.glass[ci]=1}}}
+  M.okL=(x,y)=>M.ok(x,y)||(x>=0&&y>=0&&x<W&&y<H&&M.glass[y*W+x]===1);
   M.cellOf=(px,py)=>[Math.min(W-1,Math.max(0,Math.floor(px/C))),Math.min(H-1,Math.max(0,Math.floor(py/C)))];
   M.areaAt=(px,py)=>{const[x,y]=M.cellOf(px,py);return cells[y*W+x]};
   M.siteAt=(px,py)=>{for(const s in J.sites){const r=J.sites[s].rect;if(px>=r[0]&&px<=r[2]&&py>=r[1]&&py<=r[3])return s}return null};
@@ -85,8 +90,9 @@ function smooth(M,p){const W=M.W,out=[p[0]];let i=0;while(i<p.length-1){let j=i+
 // sigtelinje i gitteret (supercover). strict: også ingen hjørner (bruges til gang)
 function losCells(M,ax,ay,bx,by,strict){let x=ax,y=ay,pi=ay*M.W+ax;const dx=Math.abs(bx-ax),dy=Math.abs(by-ay),sx=bx>ax?1:-1,sy=by>ay?1:-1;let ix=0,iy=0;
   while(ix<dx||iy<dy){const a=(0.5+ix)/dx,b=(0.5+iy)/dy;
-    if(dx&&(!dy||a<b)){x+=sx;ix++}else if(dy&&(!dx||b<a)){y+=sy;iy++}else{if(!M.ok(x+sx,y)||!M.ok(x,y+sy))return false;x+=sx;y+=sy;ix++;iy++}
-    if(!M.ok(x,y))return false;
+    const ok=strict||!M.okL?M.ok:M.okL;
+    if(dx&&(!dy||a<b)){x+=sx;ix++}else if(dy&&(!dx||b<a)){y+=sy;iy++}else{if(!ok(x+sx,y)||!ok(x,y+sy))return false;x+=sx;y+=sy;ix++;iy++}
+    if(!ok(x,y))return false;
     if(strict&&M.cross&&M.cross[y*M.W+x])return false;
     if(strict&&M.cliff){const ci=y*M.W+x;if(Math.abs(M.height[ci]-M.height[pi])>=Math.min(M.cliffT[ci],M.cliffT[pi]))return false;pi=ci}}
   return true}
@@ -219,7 +225,7 @@ function step(R){
   for(const p of alive){
     const fov=(CFG.fov+0.24*S_(p,'aware'))*Math.PI/180;p.fovA=fov;
     for(const e of alive){if(e.side===p.side)continue;
-      const dx=p.x-e.x,dy=p.y-e.y,d2=dx*dx+dy*dy,lim=64*M.C;const vis=d2<lim*lim&&canSee(R,p,e);const s=p.seen[e.id];const d=vis||!s?Math.sqrt(d2)/M.C:0;
+      const dx=p.x-e.x,dy=p.y-e.y,d2=dx*dx+dy*dy,lim=128*M.C;const vis=d2<lim*lim&&canSee(R,p,e);const s=p.seen[e.id];const d=vis||!s?Math.sqrt(d2)/M.C:0;
       if(!vis){if(s&&R.t-s.last>1.0)delete p.seen[e.id];else if(s)s.vis=false;continue}
       if(s){s.vis=true;s.last=R.t;continue}
       const inF=angDiff(p.face,angTo(p,e.x,e.y))<fov;
@@ -339,6 +345,8 @@ function move(R,p){
       if(c===p){if(dist(p,R.dropped)<M.C){p.bomb=true;R.dropped=null;p.mode='bomb'}else return walkTo(R,p,R.dropped.x,R.dropped.y,spd)}}
     if(p.bomb&&!R.planted){const s=M.siteAt(p.x,p.y);if(s===R.site){if(!R.plant&&!p.fighting){R.plant={p,left:CFG.plantTime}}return}
       if(p.mode==='bomb'||p.ri>=p.route.length){p.mode='bomb';const rc=M.J.sites[R.site].rect;return walkTo(R,p,(rc[0]+rc[2])/2,(rc[1]+rc[3])/2,spd)}}
+    /* CT desarmerer: T hører det og går mod den, der desarmerer, for at stoppe ham (gælder også gemte T) */
+    if(R.planted&&R.defuse&&R.defuse.p.alive){const d=R.defuse.p;p.holdDir=angTo(p,d.x,d.y);p.heard={x:d.x,y:d.y,t:R.t};walkTo(R,p,d.x,d.y,spd);if(!p.fighting)p.faceT=angTo(p,d.x,d.y);return}
     if(R.planted){p.holdDir=angTo(p,R.bomb.x,R.bomb.y);if(p.ri>=p.route.length||dist(p,R.bomb)>M.C*28){const pt=ppSpot(R,p);if(pt){if(Math.hypot(p.x-pt[0],p.y-pt[1])>M.C*0.8)return walkTo(R,p,pt[0],pt[1],spd)}else if(dist(p,R.bomb)>M.C*10)return walkTo(R,p,R.bomb.x+(p.k-2)*14,R.bomb.y+(p.k%2?18:-18),spd)}}
   }else{
     if(R.planted){if(dist(p,R.bomb)<M.C*0.9){if(!R.defuse&&!p.fighting)R.defuse={p,left:CFG.defuseTime};return}

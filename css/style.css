@@ -42,7 +42,7 @@ body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.4 system-ui,-appl
 .px{image-rendering:pixelated}
 .bar{display:flex;gap:8px;margin:8px 0}
 button{flex:1;padding:10px;border-radius:0;border:1px solid var(--bd);background:var(--card);color:var(--tx);font:inherit;font-weight:600}
-#feed{background:var(--card);border:1px solid var(--bd);border-radius:0;padding:6px 10px;height:30vh;overflow-y:auto}
+#feed{display:none;background:var(--card);border:1px solid var(--bd);border-radius:0;padding:6px 10px;height:30vh;overflow-y:auto}
 #feed div{padding:3px 0;border-bottom:1px solid var(--bd)}
 #feed div:last-child{border:0}
 .fx{display:grid;grid-template-columns:minmax(0,1fr) 40px minmax(0,1fr);gap:6px;align-items:center;padding:3px 0}.fx .tb{border:1px solid #000;padding:3px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;background:#fff}.fx .tb:first-child{text-align:right}.fx .rs{text-align:center;font-variant-numeric:tabular-nums;font-weight:700}.fx.n .tb{background:#fff0b3}

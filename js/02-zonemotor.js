@@ -30,6 +30,8 @@ function pick(t,bt){
  const i=t.ix[t.side][bt]++;return o[i%o.length];
 }
 
+/* kun gyldige taktikker: navne, der ikke længere findes på mappet (fx gamle standarder i en gemning), fjernes fra udvalget, før der vælges */
+{const _pk=pick;pick=function(t,bt){try{const o=t.order&&t.order[t.side]&&t.order[t.side][bt];if(o&&typeof txInfo==='function'&&typeof WD!=='undefined'&&WD){const v=o.filter(n=>txInfo(CUR,t.side,n));if(v.length!==o.length||!o.length){const f=v.length?v:tnOf(CUR,t.side).slice(0,typeof TXC!=='undefined'?TXC.sel:6);o.length=0;o.push(...f)}}}catch(e){}return _pk(t,bt)}}
 function startRound(){
  M.round++;if(M.round>24&&(M.round-25)%6===0)M.ot=[0,0];if(M.round===13||(M.round>24&&((M.round-25)%6===0||(M.round-25)%6===3)))M.teams.forEach(t=>t.side=t.side==='CT'?'T':'CT');
  if(M.round===1||M.round===13||(M.round>24&&(M.round-25)%6===0))M.players.forEach(p=>{p.money=M.round>24?10000:800;p.gun=null;p.pt=null;p.he=0;p.armor=0;p.helm=false;p.kit=false});
