@@ -202,7 +202,7 @@ function txAnc(n){const t=WD.tx[n];if(!t)return null;let p=t.p,g=0;while(p&&g++<
 {const _frS=finishRound;finishRound=function(side,why){try{if(WD&&M&&!M.done&&R&&!R.over){const i=myIdx();if(i>=0){const op=M.teams[1-i],sd=op.side,tac=op.tac,map=M.map||CUR;
   if(tac){WD.seen=WD.seen||{};M.opx=M.opx||{T:{},CT:{}};M.nw=M.nw||{};const won=side===sd?1:0;
    if(!WD.seen[tac]){if(txIsX(tac))M.nw[tac]=1;WD.seen[tac]=[txIsX(tac)?txName(tac):tac,0,0,WD.season,WD.day,map,sd]}
-   const s=WD.seen[tac];s[1]++;s[2]+=won;s[3]=WD.season;s[4]=WD.day;const e=M.opx[sd][tac]=M.opx[sd][tac]||[0,0];e[0]+=won;e[1]++}}}}catch(e){console.error(e)}
+   const s=WD.seen[tac];s[1]++;s[2]+=won;s[3]=WD.season;s[4]=WD.day;if(s[7]!==WD.season){s[7]=WD.season;s[8]=0;s[9]=0}s[8]++;s[9]+=1-won;/* s[7..9] = sæson, runder mødt i sæsonen, runder du vandt mod den i sæsonen */const e=M.opx[sd][tac]=M.opx[sd][tac]||[0,0];e[0]+=won;e[1]++}}}}catch(e){console.error(e)}
  return _frS(side,why)}}
 {const _nmS=newMatch;newMatch=function(...a){const r=_nmS(...a);if(M){M.opx={T:{},CT:{}};M.nw={}}return r}}
 // ---------- kopiering ----------
@@ -232,9 +232,9 @@ function txScoutHTML(){const nx=txNext();if(!nx)return'';const maps=nx.map?[nx.m
  const when=nx.d===WD.day?'i dag':`uge ${Math.floor(nx.d/7)+1}, ${DAYS[nx.d%7]}`;
  const blk=map=>{const tl=nx.def.tl&&nx.def.tl[map];const out=[];
   for(const sd of ['T','CT']){const L=tl?tl[sd]:[];const k=L.filter(n=>S[n]&&S[n][5]===map);
-   out.push(`<div style="margin-top:4px"><b>${sd}-side</b></div>`+(k.length?k.map(n=>{const s=S[n];return `<div class="r" style="grid-template-columns:minmax(0,1fr) auto;font-size:12.5px"><div style="overflow-wrap:anywhere">${s[0]} <span class="mu">· ${SL[STYLE[n]]||''}</span></div><div class="mu" style="white-space:nowrap">${s[2]}/${s[1]} rd. · sæson ${s[3]}, uge ${Math.floor(s[4]/7)+1}</div></div>`}).join(''):'<div class="mu">Ingen taktikker, du har mødt.</div>'))}
+   out.push(`<div style="margin-top:4px"><b>${sd}-side</b></div>`+(k.length?k.map(n=>{const s=S[n];return `<div class="r" style="grid-template-columns:minmax(0,1fr) auto;font-size:12.5px"><div style="overflow-wrap:anywhere">${s[0]} <span class="mu">· ${SL[STYLE[n]]||''}</span></div><div class="mu" style="white-space:nowrap">${s[7]===WD.season&&s[8]?`Du: <b>${s[9]}/${s[8]}</b> rd. (${Math.round(100*s[9]/s[8])} %)`:`Ikke mødt i sæsonen (sidst sæson ${s[3]})`}</div></div>`}).join(''):'<div class="mu">Ingen taktikker, du har mødt.</div>'))}
   return `<div style="margin-top:6px"><b>${mapN(map)}</b></div>`+out.join('')};
- return `<div class="tm" id="txsc"><h3>Spejderrapport – ${nx.name} <span class="mu">(${nx.what}, ${when}${nx.map?' på '+mapN(nx.map):''})</span></h3><div class="mu">Taktikker i modstanderens udvalg, som du har mødt før. x/y rd. = runder, de vandt med den, ud af dem du mødte den.</div>${maps.map(blk).join('')}</div>`}
+ return `<div class="tm" id="txsc"><h3>Spejderrapport – ${nx.name} <span class="mu">(${nx.what}, ${when}${nx.map?' på '+mapN(nx.map):''})</span></h3><div class="mu">Taktikker i modstanderens udvalg, som du har mødt før. Du: x/y rd. = runder, du har vundet mod taktikken i denne sæson (mod alle hold, der har brugt den), ud af dem du har mødt den.</div>${maps.map(blk).join('')}</div>`}
 {const _rtS=renderTactics;renderTactics=function(){TXUI=true;try{_rtS()}finally{TXUI=false}try{if(typeof TSV!=='undefined'&&TSV.on)return;const el=$('tv');if(!el||!el.querySelectorAll)return;
   el.querySelectorAll('[data-a^="open|x"]').forEach(a=>{const id=a.dataset.a.slice(5);if(!txIsX(id))return;txDescSet(id);const f=a.firstChild;if(f&&f.nodeType===3)f.textContent=txName(id)+' ';a.insertAdjacentHTML('afterbegin','<span class="mu" style="font-size:10px;margin-right:4px">EGEN</span>')});
   const hd=el.querySelector('.hd');const sc=txScoutHTML();if(hd&&sc)hd.insertAdjacentHTML('afterend',sc)}catch(e){console.error(e)}}}

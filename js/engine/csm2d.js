@@ -177,12 +177,26 @@ function deckSide(M,i,j){const c=(M.J.crossings||[])[M.crossIx[i]];if(!c||!c.see
 function deckBlock(M,i,j){const c=(M.J.crossings||[])[M.crossIx[i]];if(!c)return false;if(c.hide&&c.hide.includes(M.cells[j]))return true;
   const W=M.W,ax=i%W,ay=(i/W)|0,bx=j%W,by=(j/W)|0,n=Math.max(Math.abs(bx-ax),Math.abs(by-ay));
   for(let k=1;k<n;k++){const ci=Math.round(ay+(by-ay)*k/n)*W+Math.round(ax+(bx-ax)*k/n);if(M.cross[ci]&&M.crossIx[ci]!==M.crossIx[i])return true}return false}
+/* lukket krydsning med "sides" (fx Short over tunnelen på dust2): sigtelinjen følger det lag, den kom ind i. Tunnelen (nederste lag) har åbninger i sine ender,
+   dækket (øverste lag) i sine ender. Fra dækket ser man kun ud til siden, hvis feltet ved siden af ligger højere end tunnelen (lowLayerH) – aldrig ned i tunnelens gang */
+const csd=(M,k)=>M.cross[k]===1&&!!((M.J.crossings||[])[M.crossIx[k]]||{}).sides;
+function crossSide(M,ax,ay,bx,by,La,Lb){const W=M.W,LH=M.J.lowLayerH,dx=Math.abs(bx-ax),dy=Math.abs(by-ay),sx=bx>ax?1:-1,sy=by>ay?1:-1,bit=s=>s===1?1:2;
+  let x=ax,y=ay,ix=0,iy=0,prev=ay*W+ax,mask=csd(M,prev)?bit(La||3-M.lowAx[prev]):0;
+  while(ix<dx||iy<dy){const a=(0.5+ix)/dx,b=(0.5+iy)/dy;let s;if(dx&&(!dy||a<b)){x+=sx;ix++;s=1}else if(dy&&(!dx||b<a)){y+=sy;iy++;s=2}else{x+=sx;y+=sy;ix++;iy++;s=3}
+    const ci=y*W+x,inP=csd(M,prev),inC=csd(M,ci);
+    if(inP&&!inC){const low=M.lowAx[prev],up=3-low,ok=st=>!!(mask&bit(st))||(!!(mask&bit(up))&&st===low&&LH!=null&&M.height[ci]>LH);if(!(s===3?ok(1)&&ok(2):ok(s)))return false;mask=0}
+    else if(!inP&&inC){const low=M.lowAx[ci],up=3-low,en=(st,from)=>bit(st)|(st===low&&LH!=null&&M.height[from]>LH?bit(up):0);
+      if(s===3){const nA=prev+sx,nB=prev+sy*W,mA=csd(M,nA)?en(1,prev):en(2,nA),mB=csd(M,nB)?en(2,prev):en(1,nB);mask=mA&mB}else mask=en(s,prev)}/* skråt ind gennem et hjørne: kun de lag, begge veje rundt om hjørnet giver */
+    prev=ci}
+  if(csd(M,prev)&&Lb&&!(mask&bit(Lb)))return false;
+  return true}
 function canSee(R,a,b){const M=R.M;const i=a.ci,j=b.ci;if(i===j)return!(M.cross[i]&&a.layer&&b.layer&&a.layer!==b.layer);
   // sigt-cache: hashtabel i typede arrays (hurtigere end Map). Kollisioner overskriver bare.
   if(!M.losK){M.losK=new Int32Array(1<<20).fill(-1);M.losV=new Uint8Array(1<<20)}
   const key=i<j?i*16384+j:j*16384+i,hk=(Math.imul(key,0x9E3779B1)>>>12)&0xFFFFF;let v;
-  if(M.losK[hk]===key)v=M.losV[hk]===1;else{const W=M.W,ax=i%W,ay=(i/W)|0,bx=j%W,by=(j/W)|0;v=losCells(M,ax,ay,bx,by,false)&&!(M.hasCross&&crossThrough(M,ax,ay,bx,by));M.losK[hk]=key;M.losV[hk]=v?1:0}
+  if(M.losK[hk]===key)v=M.losV[hk]===1;else{const W=M.W,ax=i%W,ay=(i/W)|0,bx=j%W,by=(j/W)|0;v=losCells(M,ax,ay,bx,by,false)&&!(M.hasCross&&crossThrough(M,ax,ay,bx,by))&&(!M.hasCross||csd(M,i)||csd(M,j)||crossSide(M,ax,ay,bx,by,0,0));M.losK[hk]=key;M.losV[hk]=v?1:0}
   if(!v)return false;
+  if(M.hasCross&&(csd(M,i)||csd(M,j))){const W=M.W;if(!crossSide(M,i%W,(i/W)|0,j%W,(j/W)|0,csd(M,i)?(a.layer||3-M.lowAx[i]):0,csd(M,j)?(b.layer||3-M.lowAx[j]):0))return false}
   if(M.hasCross&&(M.cross[i]||M.cross[j])){const W=M.W,dx=Math.abs(j%W-i%W),dy=Math.abs(((j/W)|0)-((i/W)|0)),axis=dx>=dy?1:2;
     const La=M.cross[i]?(a.layer||3-M.lowAx[i]):0,Lb=M.cross[j]?(b.layer||3-M.lowAx[j]):0;
     if(La&&Lb&&La!==Lb)return false;/* dækket skjuler den, der står lige under */
