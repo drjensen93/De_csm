@@ -43,9 +43,14 @@ function convRoute(mp,gp,side,role){const wp=gp.wp||[],out=[];const opp=side==='
 // game-spiller <-> motor-spiller
 const gOf=ep=>ep.ref;
 // skills regnes én gang pr. skridt pr. spiller (attr har mange lag)
+/* stack: spillere, hvis markører overlapper (afstand under 2 × markørens radius), står i samme klump. Straf på alle skills undtagen Teamplay:
+   max × ((antal − 1)/4)² × (1 − egen Teamplay/100) → ved Teamplay 0: 2 mand 1,25 %, 3 mand 5 %, 4 mand 11,25 %, 5 mand 20 % */
+const STK={r:8,max:.2};
 function e2dSkill(ep,k){const gp=ep.ref;if(!gp)return ep.sk[k];const R2=R&&R.e2;if(!R2)return attr(gp,k);
-  if(gp._skt!==R2.t){gp._skt=R2.t;gp._skc={};{const z2=R2.M.areaAt(ep.x,ep.y);gp.zone=ZN[z2]?z2:gp.zone}gp.hold=ep.still*TPS;gp.gun=ep.gun;gp.pis=ep.pis;gp.alive=ep.alive}
-  const c=gp._skc[k];if(c!==undefined)return c;return gp._skc[k]=attr(gp,k)}
+  if(gp._skt!==R2.t){gp._skt=R2.t;gp._skc={};gp._stk=R2.P.reduce((n,q)=>n+(q!==ep&&q.alive&&q.side===ep.side&&!(q.layer&&ep.layer&&q.layer!==ep.layer)&&Math.hypot(q.x-ep.x,q.y-ep.y)<STK.r*2?1:0),1);{const z2=R2.M.areaAt(ep.x,ep.y);gp.zone=ZN[z2]?z2:gp.zone}gp.hold=ep.still*TPS;gp.gun=ep.gun;gp.pis=ep.pis;gp.alive=ep.alive}
+  const c=gp._skc[k];if(c!==undefined)return c;let v=attr(gp,k);
+  if(k!=='team'&&gp._stk>1){const tm=cl(e2dSkill(ep,'team'),0,100);v*=1-STK.max*((gp._stk-1)/4)**2*(1-tm/100)}
+  return gp._skc[k]=v}
 // Holdspiller: holdkammerater inden for 10 felter (i stedet for samme zone)
 {const _at=attr;attr=function(p,k){if(k==='team'&&R&&R.e2&&p&&p._e){const z=p.zone;p.zone='__2d__';let v=_at(p,k);p.zone=z;const me=p._e,C=R.e2.M.C;
     if(R.e2.P.some(q=>q!==me&&q.alive&&q.side===me.side&&q.ref&&q.ref.spec==='team'&&Math.hypot(q.x-me.x,q.y-me.y)<=C*10))v*=1.05;return v}
