@@ -256,8 +256,10 @@ const ulAll=(map,sd)=>{const o=MGR[map]&&MGR[map][sd];return o?[...new Set([...(
 const ulOk=(map,sd,n)=>!!txInfo(map,sd,n);
 function ulGet(map,sd){WD.ulib=WD.ulib||{};const U=WD.ulib[map]=WD.ulib[map]||{};
  if(!U[sd]){let L=ulAll(map,sd).filter(n=>ulOk(map,sd,n));const my=((WD.myx&&WD.myx[map]&&WD.myx[map][sd])||[]).filter(n=>txIsX(n)&&!L.includes(n));L=L.concat(my).slice(0,UL.max);
-  if(!L.length)L=tnOf(map,sd).slice(0,5);U[sd]=L;ulClean(map,sd)}
- U[sd]=U[sd].filter(n=>ulOk(map,sd,n));if(!U[sd].length){U[sd]=tnOf(map,sd).slice(0,5);ulClean(map,sd)}return U[sd]}
+  if(!L.length)L=ulStd(map,sd);U[sd]=L;ulClean(map,sd)}
+ U[sd]=U[sd].filter(n=>ulOk(map,sd,n));if(!U[sd].length){U[sd]=ulStd(map,sd);ulClean(map,sd)}return U[sd]}
+// mappets standarder uden om bibliotekets tnOf-indpakning (ellers kalder ulGet og tnOf hinanden i ring, når biblioteket er tomt)
+function ulStd(map,sd){ulGet._in=true;try{return tnOf(map,sd).filter(n=>ulOk(map,sd,n)).slice(0,5)}finally{ulGet._in=false}}
 // fjern taktikker uden for biblioteket fra kampens udvalg (og sørg for, at ingen liste er tom)
 function ulClean(map,sd){const L=WD.ulib[map][sd],o=MGR[map]&&MGR[map][sd];if(!o)return;for(const b of ['pistol','standard','eco']){o[b]=(o[b]||[]).filter(n=>L.includes(n));if(!o[b].length&&L.length)o[b]=L.slice(0,Math.min(MAXSEL,L.length))}
  WD.myx=WD.myx||{};(WD.myx[map]=WD.myx[map]||{T:[],CT:[]})[sd]=L.filter(txIsX)}
@@ -267,7 +269,7 @@ function ulRm(map,sd,n){const L=ulGet(map,sd);if(L.length<=1)return;const i=L.in
 txCopy=function(id){const t=WD.tx[id];if(!t)return false;txName(id);txDescSet(id);if(ulGet(t.m,t.s).includes(id))return true;if(!ulAdd(t.m,t.s,id))return'full';try{saveGame()}catch(e){}return true};
 txMine=(map,sd)=>WD&&WD.ulib&&WD.ulib[map]&&WD.ulib[map][sd]?WD.ulib[map][sd].filter(txIsX):((WD&&WD.myx&&WD.myx[map]&&WD.myx[map][sd])||[]).filter(txIsX);
 // i Taktik-fanen er de tilgængelige taktikker = biblioteket
-{const _tnU=tnOf;tnOf=function(map,sd){if(TXUI&&typeof TU!=='undefined'&&map===TU.map&&WD)return ulGet(map,sd).slice();return _tnU(map,sd)}}
+{const _tnU=tnOf;tnOf=function(map,sd){if(TXUI&&typeof TU!=='undefined'&&map===TU.map&&WD&&!ulGet._in)return ulGet(map,sd).slice();return _tnU(map,sd)}}
 // ---------- kort ----------
 const ZPOS={dust2:{CT:[470,80],A:[650,130],B:[130,130],MD:[340,200],SH:[540,260],LM:[290,340],LA:[670,340],TB:[130,400],MID:[440,420],LD:[620,470],TS:[440,555]},
  inferno:{B:[150,95],CH:[300,120],CT:[450,95],LB:[580,150],AR:[520,240],LO:[640,280],A:[710,340],PIT:[740,450],CAP:[690,555],SH:[590,400],TM:[460,320],MID:[360,400],MX:[440,460],M2:[520,490],TAP:[560,575],TB:[190,420],BN:[160,270],TS:[310,560]},
