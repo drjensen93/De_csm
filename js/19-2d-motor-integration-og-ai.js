@@ -6,7 +6,7 @@
  Ingen automatiske rotationer, site-skift eller tilbagefald: kun taktikkens waitpoints styrer, hvornår spillerne går videre. */
 {
 const E=window.CSM2D;
-const M2D={};// map-id -> motor-kort
+const M2D={};self.__M2D=M2D;// map-id -> motor-kort
 const E2D_MAPS={dust2:DUST2_JSON,inferno:INFERNO_JSON,aztec:AZTEC_JSON};
 // inferno: nye zoner fra 2D-kortet (T ramp mellem T-spawn og Banana/Mid, Speedway mellem CT-spawn og Arch)
 {const m=MAPS.aztec;if(m&&!m.zn.CAT){m.zn.CAT={...(m.zn.MID||{}),obs:1};m.zname.CAT='Catwalk';m.edges.push(['CA','CAT',2],['CAT','MID',2]);delete m.adj;delete m.sp;delete m.spx;if(CUR==='aztec')CUR=''}}
@@ -804,7 +804,7 @@ function t2Export(){const B=TB,mp=e2dMap(B.map);const nm=(B.nm||'').trim()||(B.s
 const GV={min:10,rate:1,stack:.5,dirMin:6,still:1,maxL:6};// maxL = højst så mange lærte spots pr. indgang (de bedste)
 function gvOf(li,map,sd){return WD&&WD.gv&&WD.gv[li]&&WD.gv[li][map]&&WD.gv[li][map][sd]||null}
 const gvOk=s=>!!s&&s[0]+s[1]>=GV.min&&(s[0]+.5)/(s[1]+1)>=GV.rate;
-const aiSpotsB=aiSpots,AISL={};
+const aiSpotsB=aiSpots,AISL={};self.__AISL=AISL;
 aiSpots=function(map){const B=aiSpotsB(map),li=AICTX&&AICTX.li!=null?AICTX.li:null;
   const ck=map+'|'+(li==null?'b':li),key=li==null?'b':(WD?WD.season+'|'+WD.day+'|'+(WD.gvV||0):'');const c=AISL[ck];if(c&&c.key===key)return c.S;
   let S;try{S=aiLearnS(B,map,li)}catch(e){console.error('aiLearnS',e);S=B}AISL[ck]={key,S};return S};

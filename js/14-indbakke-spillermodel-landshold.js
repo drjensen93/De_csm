@@ -341,7 +341,7 @@ function svWarn(){try{if(!WD||typeof ibAdd!=='function')return;const u=svUse(),l
   'Kan spillet ikke gemmes, vises en rød advarsel øverst. Den sidst gemte version bevares, men det, der er sket siden, går tabt, hvis siden lukkes.'])}</div>`)}}
 
 globalThis.onerror=(m,s,l)=>{const d=document.createElement('div');d.style.cssText='color:#d4352b;padding:6px';d.textContent='Fejl: '+m+' (linje '+l+')';document.body.prepend(d)};
-if(loadGame()){if(WD.needSp)showSponsor();else showLeague()}else newLeague();(function lp(){try{step()}finally{setTimeout(lp,TICK_MS)}})();
+if(loadGame()){if(WD.needSp)showSponsor();else showLeague()}else newLeague();if(!self.__CSMW)(function lp(){try{step()}finally{setTimeout(lp,TICK_MS)}})();
 {const sb=()=>document.querySelectorAll('#spdb [data-spd]').forEach(b=>b.classList.toggle('on',+b.dataset.spd===TICK_MS));sb();
  $('spdb').onclick=e=>{const b=e.target.closest('[data-spd]');if(!b)return;TICK_MS=+b.dataset.spd;try{localStorage.setItem('csmSpd',TICK_MS)}catch(x){}sb()}}
 
