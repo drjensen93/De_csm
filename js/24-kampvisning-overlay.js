@@ -51,11 +51,14 @@
 const PAR={max:4,ws:null,bad:false,why:'',id:0};
 const parN=()=>Math.max(1,Math.min(PAR.max,(typeof navigator!=='undefined'&&navigator.hardwareConcurrency)||2));// én tråd pr. kerne, højst 4 (hovedtråden laver næsten intet imens)
 const parTag=v=>Object.prototype.toString.call(v);
-function parSrc(){const t=[...document.scripts].map(s=>s.textContent).find(x=>x.includes('function simMatch(')&&x.includes('PAR={max'));if(!t)throw new Error('script ikke fundet');
- return `self.__CSMW=1;var __rs=12345;Math.random=function(){__rs=(__rs+0x6D2B79F5)|0;let t=__rs;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296};
+/* trådens kode: spillet selv. I én samlet fil (artefaktet) er det det indlejrede script; i den opdelte version (GitHub) hentes filerne med importScripts i samme rækkefølge */
+function parSrc(){const t=[...document.scripts].map(s=>s.textContent).find(x=>x.includes('function simMatch(')&&x.includes('PAR={max'));
+ const srcs=[...document.scripts].map(s=>s.src).filter(Boolean);if(!t&&!srcs.length)throw new Error('script ikke fundet');
+ return parPrelude()+(t||'importScripts('+srcs.map(u=>JSON.stringify(u)).join(',')+');')}
+function parPrelude(){return `self.__CSMW=1;var __rs=12345;Math.random=function(){__rs=(__rs+0x6D2B79F5)|0;let t=__rs;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296};
 (function(){const H={get(t,k){if(k===Symbol.toPrimitive)return h=>h==='number'?0:'';if(k===Symbol.iterator)return function*(){};if(k==='length')return 0;if(k==='then')return undefined;return P},set(){return true},apply(){return P},construct(){return P},has(){return true},deleteProperty(){return true}};const P=new Proxy(function(){},H);
 self.document=P;self.window=self;try{self.localStorage={getItem(){return null},setItem(){},removeItem(){},clear(){}}}catch(e){}self.requestAnimationFrame=f=>setTimeout(f,16);self.cancelAnimationFrame=clearTimeout;self.getComputedStyle=()=>P;self.matchMedia=()=>P;self.Image=function(){return P};self.alert=()=>{};self.innerWidth=400;self.innerHeight=800;self.devicePixelRatio=1;self.HTMLElement=self.HTMLElement||function(){};self.Node=self.Node||function(){};if(!self.addEventListener)self.addEventListener=()=>{};})();
-`+t}
+`}
 /* --- i tråden --- */
 function parClean(){const isX=k=>/^x\d+$/.test(k);for(const m in MAPS){const T=MAPS[m]&&MAPS[m].tac;if(T)for(const id in T)if(isX(id))delete T[id]}
  const AL=self.__AISL||{};for(const O of [STYLE,TSITE,CHASE,CHASE_PRE,TXP,AL])for(const k of Object.keys(O))if(O===TXP||O===AL||isX(k))delete O[k];
