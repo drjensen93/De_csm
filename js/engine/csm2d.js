@@ -58,7 +58,7 @@ function makeMap(J){
   for(const B of J.seeRects||[]){const[x0,y0,x1,y1]=B.rect;for(let y=Math.floor(y0/C);y<=Math.floor(y1/C);y++)for(let x=Math.floor(x0/C);x<=Math.floor(x1/C);x++)if(x>=0&&y>=0&&x<W&&y<H&&!walk[y*W+x]){M.glass[y*W+x]=1;if(B.minH){M.seeH=M.seeH||new Uint8Array(W*H);M.seeN=M.seeN||new Uint8Array(W*H);M.seeH[y*W+x]=B.minH;M.seeN[y*W+x]=B.near||0;if(B.low){M.seeL=M.seeL||[];M.seeL[y*W+x]=B.low}}}}
   M.okL=(x,y)=>M.ok(x,y)||(x>=0&&y>=0&&x<W&&y<H&&M.glass[y*W+x]===1);
   M.cellOf=(px,py)=>[Math.min(W-1,Math.max(0,Math.floor(px/C))),Math.min(H-1,Math.max(0,Math.floor(py/C)))];
-  M.areaAt=(px,py)=>{const[x,y]=M.cellOf(px,py);return cells[y*W+x]};
+  M.areaAt=(px,py)=>{let x=Math.floor(px/C),y=Math.floor(py/C);x=x>W-1?W-1:x<0?0:x;y=y>H-1?H-1:y<0?0:y;return cells[y*W+x]};// uden array (hurtigere)
   M.siteAt=(px,py)=>{for(const s in J.sites){const r=J.sites[s].rect;if(px>=r[0]&&px<=r[2]&&py>=r[1]&&py<=r[3])return s}return null};
   M.siteRegion=(px,py)=>{const a=M.areaAt(px,py);return a&&J.areas[a]?J.areas[a].site:null};
   M.nearestWalk=(cx,cy)=>{if(M.ok(cx,cy))return[cx,cy];for(let r=1;r<10;r++)for(let dy=-r;dy<=r;dy++)for(let dx=-r;dx<=r;dx++)if(M.ok(cx+dx,cy+dy))return[cx+dx,cy+dy];return[cx,cy]};
@@ -201,11 +201,13 @@ function crossSide(M,ax,ay,bx,by,La,Lb){const W=M.W,LH=M.J.lowLayerH,dx=Math.abs
     prev=ci}
   if(csd(M,prev)&&Lb&&!(mask&bit(Lb)))return false;
   return true}
-function canSee(R,a,b){const M=R.M;const i=a.ci,j=b.ci;if(i===j)return!(M.cross[i]&&a.layer&&b.layer&&a.layer!==b.layer);
+function canSee(R,a,b){const M=R.M,i=a.ci,j=b.ci,r=canSee0(R,a,b);if(i!==j&&!M.cross[i]&&!M.cross[j]){const key=i<j?i*16384+j:j*16384+i,hk=(Math.imul(key,0x9E3779B1)>>>12)&0xFFFFF;if(M.losK[hk]===key)(i<j?M.losF:M.losR)[hk]=r?2:1}return r}
+function canSee0(R,a,b){const M=R.M;const i=a.ci,j=b.ci;if(i===j)return!(M.cross[i]&&a.layer&&b.layer&&a.layer!==b.layer);
   // sigt-cache: hashtabel i typede arrays (hurtigere end Map). Kollisioner overskriver bare.
-  if(!M.losK){M.losK=new Int32Array(1<<20).fill(-1);M.losV=new Uint8Array(1<<20)}
-  const key=i<j?i*16384+j:j*16384+i,hk=(Math.imul(key,0x9E3779B1)>>>12)&0xFFFFF;let v;
-  if(M.losK[hk]===key)v=M.losV[hk]===1;else{const W=M.W,ax=i%W,ay=(i/W)|0,bx=j%W,by=(j/W)|0;v=losCells(M,ax,ay,bx,by,false)&&!(M.hasCross&&crossThrough(M,ax,ay,bx,by))&&(!M.hasCross||csd(M,i)||csd(M,j)||crossSide(M,ax,ay,bx,by,0,0));M.losK[hk]=key;M.losV[hk]=v?1:0}
+  if(!M.losK){M.losK=new Int32Array(1<<20).fill(-1);M.losV=new Uint8Array(1<<20);M.losF=new Uint8Array(1<<20);M.losR=new Uint8Array(1<<20)}
+  const key=i<j?i*16384+j:j*16384+i,hk=(Math.imul(key,0x9E3779B1)>>>12)&0xFFFFF;let v;const plain=!M.cross[i]&&!M.cross[j],FA=i<j?M.losF:M.losR;
+  if(plain&&M.losK[hk]===key&&FA[hk])return FA[hk]===2;
+  if(M.losK[hk]===key)v=M.losV[hk]===1;else{M.losF[hk]=0;M.losR[hk]=0;const W=M.W,ax=i%W,ay=(i/W)|0,bx=j%W,by=(j/W)|0;v=losCells(M,ax,ay,bx,by,false)&&!(M.hasCross&&crossThrough(M,ax,ay,bx,by))&&(!M.hasCross||csd(M,i)||csd(M,j)||crossSide(M,ax,ay,bx,by,0,0));M.losK[hk]=key;M.losV[hk]=v?1:0}
   if(!v)return false;
   if(M.hasCross&&(csd(M,i)||csd(M,j))){const W=M.W;if(!crossSide(M,i%W,(i/W)|0,j%W,(j/W)|0,csd(M,i)?(a.layer||3-M.lowAx[i]):0,csd(M,j)?(b.layer||3-M.lowAx[j]):0))return false}
   if(M.hasCross&&(M.cross[i]||M.cross[j])){const W=M.W,dx=Math.abs(j%W-i%W),dy=Math.abs(((j/W)|0)-((i/W)|0)),axis=dx>=dy?1:2;
@@ -307,7 +309,7 @@ function step(R){
         if(R.t-p.hurtAt<1)ch-=(100-S_(p,'calm'))/100*0.10;                       // Calmness: under beskydning
         if(p.still>2)ch+=0.08*(S_(p,'pat')-50)/50;                               // Patience: holder vinklen
         if(tg.still>1)ch-=0.06*(S_(tg,'pos')-50)/50;                             // Positioning (målets): dækning
-        const ca=M.cellOf(p.x,p.y),cb=M.cellOf(tg.x,tg.y);if(M.height[ca[1]*M.W+ca[0]]-M.height[cb[1]*M.W+cb[0]]>=3)ch+=0.04;// højde
+        if(M.height[p.ci]-M.height[tg.ci]>=3)ch+=0.04;// højde
         if(w.c==='sniper')ch+=0.1;
         const rf=w.fall?Math.max(0,Math.min(1,(du-500)/1500)):0;if(rf)ch*=1-w.acc*rf;
         if(R.opt.luck)ch*=1+R.opt.luck(p);
@@ -365,9 +367,33 @@ function ctClear(R,p,spd){if(!teamOf(R,'T').length)return null;/* alle T er død
   let bi=-1,bd=1e9;for(let i=0;i<L.length;i++){if(R.ppClr.has(i))continue;const d=Math.hypot(p.x-L[i][0],p.y-L[i][1]);if(d<bd){bd=d;bi=i}}
   let b=bi<0?null:L[bi];
   /* tid: den rigtige gåvej (rundt om vægge) fra spilleren til pladsen og videre til bomben + desarmering (kit = halv tid) + 2 sek. margen */
-  if(b){const v=spd/CFG.dt,need=(pathLen(M,p.x,p.y,b[0],b[1],p.layer)+pathLen(M,b[0],b[1],R.bomb.x,R.bomb.y,0))/v*1.15+CFG.defuseTime*(p.ref&&p.ref.kit?0.5:1)+2;if(R.bombLeft<need){b=null;bi=-1}}
+  if(b){const v=spd/CFG.dt,L2=pathLen(M,b[0],b[1],R.bomb.x,R.bomb.y,0),nd=L1=>(L1+L2)/v*1.15+CFG.defuseTime*(p.ref&&p.ref.kit?0.5:1)+2;
+    /* samme beslutning som med A*, men A* køres kun, når grænserne ikke afgør det: luftlinjen er en nedre grænse, afstandskortet en øvre */
+    let ok;if(R.bombLeft<nd(Math.hypot(b[0]-p.x,b[1]-p.y)))ok=false;else{const hi=pathHi(M,p.x,p.y,b[0],b[1],p.layer);ok=hi!=null&&R.bombLeft>=nd(hi)?true:!(R.bombLeft<nd(pathLen(M,p.x,p.y,b[0],b[1],p.layer)))}
+    if(!ok){b=null;bi=-1}}
   p._cc={t:R.t,b,i:bi};return b}
 /* længden af gåvejen mellem to punkter (px), målt langs den vej spillerne faktisk går */
+/* øvre grænse for pathLen: korteste vej i gitteret (afstandskort mod målfeltet, samme kanter som A*). A*'s udglattede vej er aldrig længere */
+function revGraph(M){if(M._rv)return M._rv;const W=M.W,H=M.H,N=W*H,X=M.cross,ok=M.walk,okc=(x,y)=>x>=0&&y>=0&&x<W&&y<H&&ok[y*W+x]===1,E=[];
+  for(let i=0;i<N;i++){if(ok[i]!==1)continue;const x=i%W,y=(i/W)|0;for(const m of X[i]?[1,2]:[0]){const st=i*3+m;
+    for(let q=0;q<8;q++){const d=NB[q],dx=d[0],dy=d[1],w=d[2],nx=x+dx,ny=y+dy;if(!okc(nx,ny))continue;if(dx&&dy&&!(okc(x+dx,y)&&okc(x,y+dy)))continue;const j=ny*W+nx;
+      if(M.cliff){const T=M.cliffT,low=(X[i]||X[j])&&!(dx&&dy)&&(dx?1:2)===M.lowAx[X[i]?i:j]&&M.J.lowLayerH!=null;
+        if(low){const LH=M.J.lowLayerH,a=X[i]?LH:M.height[i],b=X[j]?LH:M.height[j];if(Math.abs(a-b)>=Math.min(T[i],T[j]))continue}
+        else{const hc=M.height[i],ti=T[i];if(Math.abs(M.height[j]-hc)>=Math.min(ti,T[j]))continue;if(dx&&dy){const a=y*W+x+dx,b=(y+dy)*W+x;if(Math.abs(M.height[a]-hc)>=Math.min(ti,T[a])||Math.abs(M.height[b]-hc)>=Math.min(ti,T[b]))continue}}}
+      let nm=0;if(X[i]||X[j]){if(dx&&dy)continue;const ax=dx?1:2;if(X[i]&&m&&m!==ax)continue;if(X[j])nm=ax}
+      E.push(j*3+nm,st,w)}}}
+  const S=N*3,cnt=new Int32Array(S+1);for(let k=0;k<E.length;k+=3)cnt[E[k]+1]++;for(let k=0;k<S;k++)cnt[k+1]+=cnt[k];
+  const to=new Int32Array(E.length/3),wt=new Float64Array(E.length/3),pos=cnt.slice(0,S);for(let k=0;k<E.length;k+=3){const e=pos[E[k]]++;to[e]=E[k+1];wt[e]=E[k+2]}
+  return M._rv={off:cnt,to,wt,S}}
+function distField(M,t){M._df=M._df||new Map();let D=M._df.get(t);if(D)return D;const G=revGraph(M);D=new Float64Array(G.S).fill(Infinity);
+  const hf=[],hi=[],push=(f,i)=>{hf.push(f);hi.push(i);let k=hf.length-1;while(k>0){const p=(k-1)>>1;if(hf[p]<=hf[k])break;[hf[p],hf[k]]=[hf[k],hf[p]];[hi[p],hi[k]]=[hi[k],hi[p]];k=p}},
+    pop=()=>{const top=hi[0],tf=hf[0],lf=hf.pop(),li=hi.pop();if(hf.length){hf[0]=lf;hi[0]=li;let k=0;const n=hf.length;for(;;){const l=2*k+1,r=l+1;let m=k;if(l<n&&hf[l]<hf[m])m=l;if(r<n&&hf[r]<hf[m])m=r;if(m===k)break;[hf[m],hf[k]]=[hf[k],hf[m]];[hi[m],hi[k]]=[hi[k],hi[m]];k=m}}return[top,tf]};
+  for(let m=0;m<3;m++){D[t*3+m]=0;push(0,t*3+m)}
+  while(hf.length){const[u,du]=pop();if(du>D[u])continue;for(let e=G.off[u];e<G.off[u+1];e++){const v=G.to[e],nd=du+G.wt[e];if(nd<D[v]){D[v]=nd;push(nd,v)}}}
+  if(M._df.size>64)M._df.clear();M._df.set(t,D);return D}
+function pathHi(M,ax,ay,bx,by,layer){const[sx,sy]=M.nearestWalk(...M.cellOf(ax,ay)),[tx,ty]=M.nearestWalk(...M.cellOf(bx,by)),s=sy*M.W+sx;
+  const Ls=M.cross[s]?(layer===1||layer===2?layer:3-M.lowAx[s]):0,d=distField(M,ty*M.W+tx)[s*3+Ls];if(!isFinite(d))return null;
+  return (Math.hypot(sx*M.C+M.C/2-ax,sy*M.C+M.C/2-ay)+d*M.C+Math.hypot(bx-(tx*M.C+M.C/2),by-(ty*M.C+M.C/2)))*(1+1e-4)+1}
 function pathLen(M,ax,ay,bx,by,layer){const[sx,sy]=M.nearestWalk(...M.cellOf(ax,ay)),[tx,ty]=M.nearestWalk(...M.cellOf(bx,by)),P=astar(M,sx,sy,tx,ty,layer);
   if(!P)return Math.hypot(bx-ax,by-ay)*1.5;let L=0,x=ax,y=ay;for(const q of P){L+=Math.hypot(q[0]-x,q[1]-y);x=q[0];y=q[1]}return L+Math.hypot(bx-x,by-y)}
 function move(R,p){
