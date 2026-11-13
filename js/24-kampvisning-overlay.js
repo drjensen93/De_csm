@@ -136,3 +136,7 @@ if(!self.__CSMW){const _sd=simDay;simDay=function(r,cl,done){if(!r||PAR.bad||typ
  fresh()};
  {const _ed=endDay;endDay=function(){const r=_ed.apply(this,arguments);setTimeout(parPre,300);return r}}
  setTimeout(parPre,2500)}
+/* status for trådene nederst i menuen, så man kan se, om de bruges, og hvorfor ikke (13. nov.) */
+function parStat(){if(typeof Worker==='undefined')return'Tråde: ikke understøttet her';if(PAR.bad)return'Tråde slået fra: '+(PAR.why||'ukendt grund');
+ if(PAR.cur)return`Tråde: ${PAR.cur.n} i gang`+(PAR.cur.show?'':' (forudberegner)');if(PAR.ws)return`Tråde: ${PAR.ws.length} klar`+(PAR.pf&&PAR.pf.st==='done'?' · næste dag er regnet':'');return'Tråde: ikke startet endnu'}
+if(!self.__CSMW){setInterval(()=>{try{const n=$('nav');if(!n)return;let e=$('parst');if(!e){n.insertAdjacentHTML('beforeend','<div id="parst" style="font-size:10px;color:var(--mu);padding:6px 2px;text-align:center;line-height:1.25;overflow-wrap:anywhere"></div>');e=$('parst')}const t=parStat();if(e.textContent!==t)e.textContent=t}catch(x){}},1000)}
