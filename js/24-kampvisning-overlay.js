@@ -105,15 +105,31 @@ function parInit(cb){if(PAR.ws)return cb(true);let url;try{url=URL.createObjectU
  for(let i=0;i<n;i++){let w;try{w=new Worker(url)}catch(e){PAR.why='Worker: '+e.message;return fin(false)}
   w.onerror=e=>{PAR.why='fejl i tråd: '+(e.message||'ukendt');if(e.preventDefault)e.preventDefault();fin(false)};
   w.onmessage=e=>{if(e.data&&e.data.t==='ready'&&++ready===n)fin(true)};ws.push(w)}}
-function parDay(r,cb){parInit(ok=>{if(!ok)return cb(false);const ws=PAR.ws,id=++PAR.id,sig=parSig(),jobs=WD.lg.map((g,li)=>({li,seed:(Math.random()*4294967296)>>>0})),outs=[];
-  let left=ws.length,done=0,end=false;const fin=ok=>{if(end)return;end=true;clearTimeout(to);ws.forEach(w=>{w.onmessage=null;w.onerror=null});
-   if(!ok){ws.forEach(w=>{try{w.terminate()}catch(e){}});PAR.ws=null;PAR.bad=true;return cb(false)}const ok2=parMerge(outs,sig);if(ok2===null){PAR.retry=true;return cb(false)}cb(ok2)};
+function parRun(r,show,cb){parInit(ok=>{if(!ok)return cb(null);if(PAR.kill)PAR.kill();const ws=PAR.ws,id=++PAR.id,sig=parSig(),jobs=WD.lg.map((g,li)=>({li,seed:(Math.random()*4294967296)>>>0})),outs=[],st=PAR.cur={done:0,show,n:ws.length};
+  let left=ws.length,end=false;PAR.kill=()=>{if(end)return;end=true;clearTimeout(to);cb(null)};// en ny kørsel afløser en gammel (trådene gør den gamle færdig først, men svaret ignoreres)
+  const fin=ok=>{if(end)return;end=true;PAR.kill=null;clearTimeout(to);PAR.cur=null;ws.forEach(w=>{w.onmessage=null;w.onerror=null});
+   if(!ok){ws.forEach(w=>{try{w.terminate()}catch(e){}});PAR.ws=null;PAR.bad=true;return cb(null)}cb({outs,sig})};
   const to=setTimeout(()=>{PAR.why='tråd-timeout';fin(false)},15*60000);
   ws.forEach((w,i)=>{w.onerror=e=>{PAR.why='fejl i tråd: '+(e.message||'ukendt');if(e.preventDefault)e.preventDefault();fin(false)};
-   w.onmessage=e=>{const m=e.data;if(!m||m.id!==id)return;if(m.t==='p'){done++;try{$('nx').textContent=`Simulerer ${done}/24 · ${ws.length} tråde`}catch(x){}}
+   w.onmessage=e=>{const m=e.data;if(!m||m.id!==id)return;if(m.t==='p'){st.done++;parProg()}
     else if(m.t==='ok'){outs.push(...m.out);if(--left===0)fin(true)}else if(m.t==='err'){PAR.why='fejl i tråd: '+m.msg.split('\n')[0];fin(false)}};
    const part=jobs.filter((j,k)=>k%ws.length===i);try{w.postMessage({t:'day',id,r,snap:WD,jobs:part})}catch(e){PAR.why='kan ikke sende spillet til tråd: '+e.message;fin(false)}})})}
+function parProg(){const st=PAR.cur;if(!st||!st.show)return;try{$('nx').textContent=`Simulerer ${st.done}/24 · ${st.n} tråde`}catch(x){}}
+function parDay(r,cb){parRun(r,true,res=>{if(!res)return cb(false);const ok2=parMerge(res.outs,res.sig);if(ok2===null){PAR.retry=true;return cb(false)}cb(ok2)})}
+/* forudberegning: når en dag er slut (og når spillet indlæses), regner trådene næste ligadags AI-kampe i baggrunden.
+ Ved "Næste dag" bruges resultatet, hvis intet i ligaerne er ændret siden (ellers regnes dagen om). Kører den stadig, ventes der på den. */
+const parKey=r=>WD?WD.season+'|'+WD.day+'|'+r:'';
+function parPre(){try{if(PAR.bad||PAR.cur||BUSY||typeof Worker==='undefined'||!WD||!WD.lg)return;const r=dayRound(WD.day);if(!r||PAR.pf&&PAR.pf.key===parKey(r))return;
+ const pf=PAR.pf={key:parKey(r),st:'run',res:null,cbs:[]};parRun(r,false,res=>{pf.st=res?'done':'fail';pf.res=res;const c=pf.cbs;pf.cbs=[];c.forEach(f=>f());if(!c.length)setTimeout(parPre,100)})}catch(e){console.warn('Forudberegning:',e)}}
 if(!self.__CSMW){const _sd=simDay;simDay=function(r,cl,done){if(!r||PAR.bad||typeof Worker==='undefined')return _sd(r,cl,done);
- try{$('nx').textContent='Simulerer i tråde…'}catch(x){}
- parDay(r,ok=>{if(!ok){if(PAR.why)console.warn('Tråde:',PAR.why);if(PAR.retry)PAR.retry=false;else PAR.bad=true;return _sd(r,cl,done)}
-  KC=!!r;CLM=true;for(const x of cl){if(x.m.res||isMe(x.m.a)||isMe(x.m.b))continue;const s=simMatch([kdef(x.m.a),kdef(x.m.b)],x.m.nd!==false,x.m.map);x.m.res=[s[0],s[1]]}CLM=false;done()})}}
+ const finish=()=>{KC=!!r;CLM=true;for(const x of cl){if(x.m.res||isMe(x.m.a)||isMe(x.m.b))continue;const s=simMatch([kdef(x.m.a),kdef(x.m.b)],x.m.nd!==false,x.m.map);x.m.res=[s[0],s[1]]}CLM=false;done()};
+ const seq=()=>{if(PAR.why)console.warn('Tråde:',PAR.why);return _sd(r,cl,done)};
+ const fresh=()=>{if(PAR.bad)return seq();try{$('nx').textContent='Simulerer i tråde…'}catch(x){}
+  parDay(r,ok=>{if(!ok){if(PAR.retry)PAR.retry=false;else PAR.bad=true;return seq()}finish()})};
+ const pf=PAR.pf;PAR.pf=null;
+ if(pf&&pf.key===parKey(r)){const use=()=>{if(pf.st!=='done')return fresh();const ok=parMerge(pf.res.outs,pf.res.sig);
+   if(ok===true)return finish();if(ok===false){PAR.bad=true;return seq()}PAR.why='';fresh()};// null: noget er ændret siden forudberegningen -> regn dagen igen
+  if(pf.st==='run'){if(PAR.cur){PAR.cur.show=true;parProg()}pf.cbs.push(use)}else use();return}
+ fresh()};
+ {const _ed=endDay;endDay=function(){const r=_ed.apply(this,arguments);setTimeout(parPre,300);return r}}
+ setTimeout(parPre,2500)}
