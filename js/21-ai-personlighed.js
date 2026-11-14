@@ -27,7 +27,7 @@ const TXEC={n:15,lib:3,K:15,cand:false};/* cand: eco-kandidater (slået fra – 
 {const _fr=finishRound;finishRound=function(side,why){let rec=null;try{if(TXON&&WD&&M&&!M.done&&R&&!R.over&&M.defs){const map=M.map||CUR;
    rec=['T','CT'].map(sd=>{const t=teamOf(sd);if(!t||!t.tac)return null;const d=M.defs[t.i],S=d.tst&&d.tst[map]&&d.tst[map][t.tac];return{sd,d,map,bt:t.bt==='force'?'eco':t.bt,tac:t.tac,b:S?S.slice():null}})}}catch(e){rec=null}
  const r=_fr(side,why);
- try{if(rec)for(const x of rec){if(!x||!txOk(x.d))continue;const won=side===x.sd?1:0,Bm=((x.d.tstB=x.d.tstB||{})[x.map]=x.d.tstB[x.map]||{}),e=Bm[x.bt+'|'+x.tac]=Bm[x.bt+'|'+x.tac]||[0,0];e[0]+=won;e[1]++;
+ try{if(rec)for(const x of rec){if(!x||!txOk(x.d))continue;const won=side===x.sd?1:0,Bm=((x.d.tstB=x.d.tstB||{})[x.map]=x.d.tstB[x.map]||{});if(x.bt!=='standard'){const e=Bm[x.bt+'|'+x.tac]=Bm[x.bt+'|'+x.tac]||[0,0];e[0]+=won;e[1]++}
    if(x.bt!=='standard'){const S=x.d.tst&&x.d.tst[x.map];if(S){if(x.b)S[x.tac]=x.b;else delete S[x.tac]}}}}catch(e){console.error('finishRoundB',e)}
  return r}}
 function txEcoNew(d,map,sd){const pv=TXD;TXD=d;try{const b=txEcoBuild(map,sd);if(!b)return;const id=txMk(map,sd,b,'eco',null,d);WD.tx[id].eco=1;d.tc[map][sd+'eco']=id;const Bm=(d.tstB=d.tstB||{})[map]=d.tstB[map]||{};Bm['eco|'+id]=[0,0]}catch(e){console.error('txEcoNew',e)}finally{TXD=pv}}

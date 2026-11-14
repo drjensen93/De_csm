@@ -49,7 +49,8 @@
  Bagefter flettes resultatet ind i ligaens rækkefølge: holdene, ligaens statistik (gemt pr. liga), nye taktikker (får løbenumre i ligarækkefølge) og tællere.
  Ændrer en kamp noget andet end det, eller går noget galt, spilles dagen i stedet som før i hovedtråden. */
 const PAR={max:4,ws:null,bad:false,why:'',id:0};
-const parN=()=>Math.max(1,Math.min(PAR.max,(typeof navigator!=='undefined'&&navigator.hardwareConcurrency)||2));// én tråd pr. kerne, højst 4 (hovedtråden laver næsten intet imens)
+/* antal tråde: én pr. kerne, højst 4, og højst én pr. 2 GB hukommelse, hvor browseren oplyser den (Chrome/Android). Ellers (fx Safari og iPhone) højst 2, da hver tråd har sin egen kopi af spillet (14. nov.) */
+const parN=()=>{const nv=typeof navigator!=='undefined'?navigator:{},c=nv.hardwareConcurrency||2,dm=nv.deviceMemory;return Math.max(1,Math.min(PAR.max,c,dm?Math.max(1,Math.floor(dm/2)):2))};// én tråd pr. kerne, højst 4 (hovedtråden laver næsten intet imens)
 const parTag=v=>Object.prototype.toString.call(v);
 /* trådens kode: spillet selv. I én samlet fil (artefaktet) er det det indlejrede script; i den opdelte version (GitHub) hentes filerne med importScripts i samme rækkefølge */
 function parSrc(){const t=[...document.scripts].map(s=>s.textContent).find(x=>x.includes('function simMatch(')&&x.includes('PAR={max'));
@@ -65,22 +66,50 @@ function parClean(){const isX=k=>/^x\d+$/.test(k);for(const m in MAPS){const T=M
  for(const k of [...TSTACK])if(isX(k))TSTACK.delete(k);TXFB.clear();TXRC.clear();TXSY.clear();TXLI=null;DKEY=new Map();
  /* motorens sigte-cache husker, hvilken retning et par først blev regnet i, så den nulstilles før hver liga (ellers afhænger resultatet af, hvad tråden spillede før) */
  const MD=self.__M2D||{};for(const id in MD){const mp=MD[id];if(mp&&mp.losK){mp.losK.fill(-1);if(mp.losF){mp.losF.fill(0);mp.losR.fill(0)}}if(mp&&mp.pathCache)mp.pathCache.clear()}}
-function parDiff(S,SJ,W,li){const J=JSON.stringify,unk=[],per={},glob={};
- for(const k of new Set([...Object.keys(S),...Object.keys(W)])){if(k==='lg')continue;const a=S[k],b=W[k];if(J(a)===J(b))continue;
-  if(k==='txn'){glob.txn=b;continue}if((typeof a==='number'||a==null)&&typeof b==='number'){(glob.num=glob.num||{})[k]=b-(a||0);continue}// tællere (gvV, txSkip …) lægges sammen
-  if(k==='tx'){const A=a||{},B=b||{};for(const id in A)if(J(A[id])!==J(B[id]))unk.push('tx.'+id);const nw={};for(const id in B)if(!(id in A))nw[id]=B[id];glob.tx=nw;continue}
-  if(b&&parTag(b)==='[object Object]'&&(a==null||parTag(a)==='[object Object]')){const A=a||{};let ok=true;for(const s of new Set([...Object.keys(A),...Object.keys(b)]))if(s!==String(li)&&J(A[s])!==J(b[s])){ok=false;unk.push(k+'.'+s)}
-   if(ok){per[k]={v:b[String(li)]};continue}}else unk.push(k)}
- for(let j=0;j<W.lg.length;j++)if(j!==li&&SJ[j]!==J(W.lg[j]))unk.push('lg.'+j);
- if(li===W.me.li&&J(S.lg[li].teams[W.me.ti])!==J(W.lg[li].teams[W.me.ti]))unk.push('mit hold');
+/* (14. nov.) ændringer findes med et fingeraftryk (hash) af hver del, regnet ved dagens start (X) og efter ligaens kampe.
+ Kopien deler alt andet end ligaen og dens statistik med udgangspunktet, så en ændring i de delte dele kan kun opdages mod fingeraftrykket.
+ Fingeraftrykket laver ingen tekststrenge, så tråden bruger ikke ekstra hukommelse på at tjekke */
+function parH(v,ids){let h1=-2128831035,h2=461845907;const mix=n=>{h1=Math.imul(h1^n,16777619);h2=Math.imul(h2^(n>>>7|n<<25),-1640531535)};
+ const mixS=x=>{mix(x.length);for(let i=0;i<x.length;i++)mix(x.charCodeAt(i))};
+ const go=x=>{if(x===null)return mix(1);const t=typeof x;
+  if(t==='number'){mix(2);if(Number.isInteger(x)&&x>-2147483648&&x<2147483648)mix(x|0);else mixS(String(x));return}
+  if(t==='string'){mix(3);return mixS(x)}if(t==='boolean')return mix(x?4:5);if(t==='undefined')return mix(6);if(t!=='object')return mix(7);
+  if(Array.isArray(x)){mix(8);mix(x.length);for(let i=0;i<x.length;i++)go(x[i]);return}
+  if(parTag(x)!=='[object Object]')return mix(9);
+  mix(10);for(const k in x){mixS(k);go(x[k])}mix(11)};
+ if(ids){mix(12);for(const id of ids){mixS(id);go(v[id])}}else go(v);return (h1>>>0)*2097152+(h2>>>11)}
+function parPrep(S){const P={},SJ=S.lg.map(x=>parH(x)),tids=Object.keys(S.tx||{}),TXJ=parH(S.tx||{},tids);
+ for(const k in S){if(k==='lg'||k==='tx')continue;const v=S[k];
+  if(v&&parTag(v)==='[object Object]'){const o={};for(const s in v)o[s]=parH(v[s]);P[k]={o:1,s:o}}else P[k]={o:0,s:parH(v)}}
+ return{SJ,P,TXJ,tids}}
+function parDiff(S,X,W,li){const {SJ,P,TXJ,tids}=X,unk=[],per={},glob={},L=String(li),plain=v=>!!v&&parTag(v)==='[object Object]';
+ for(const k of new Set([...Object.keys(S),...Object.keys(W)])){if(k==='lg')continue;const a=S[k],b=W[k];
+  if(k==='tx'){const A=a||{},B=b||{};if(parH(B,tids)!==TXJ)unk.push('tx (eksisterende taktik ændret)');
+   const nw={};for(const id in B)if(!(id in A))nw[id]=B[id];glob.tx=nw;continue}
+  if(k==='txn'){if(b!==a)glob.txn=b;continue}
+  if((typeof a==='number'||a==null)&&typeof b==='number'){if(a!==b)(glob.num=glob.num||{})[k]=b-(a||0);continue}// tællere (gvV, txSkip, txRev …) lægges sammen
+  const p=P[k];
+  if(!p){if(b===undefined)continue;if(plain(b)&&Object.keys(b).every(s=>s===L)){if(L in b)per[k]={v:b[L]};continue}unk.push(k);continue}
+  if(p.o){if(!plain(b)){unk.push(k);continue}let ch=false;
+   for(const s of new Set([...Object.keys(p.s),...Object.keys(b)])){if(s in p.s&&s in b&&parH(b[s])===p.s[s])continue;if(s===L)ch=true;else unk.push(k+'.'+s)}
+   if(ch)per[k]={v:b[L]};continue}
+  if(parH(b)!==p.s)unk.push(k)}
+ for(let j=0;j<W.lg.length;j++)if(j!==li&&SJ[j]!==parH(W.lg[j]))unk.push('lg.'+j);
+ if(li===W.me.li&&parH(S.lg[li].teams[W.me.ti])!==parH(W.lg[li].teams[W.me.ti]))unk.push('mit hold');
  return{lg:W.lg[li],per,glob,unk}}
-function parJob(S,SJ,job,r){parClean();WD=structuredClone(S);txRegAll();__rs=job.seed|0;KC=true;CLM=false;
+/* kopi kun af det, en ligas kampe må ændre: ligaen selv, dens del af statistikken (objekter delt pr. liga) og listen over taktikker (nye tilføjes). Resten deles med udgangspunktet */
+function parCopy(S,li){const W=Object.assign({},S);W.lg=S.lg.slice();W.lg[li]=structuredClone(S.lg[li]);
+ for(const k in S){if(k==='lg')continue;const v=S[k];if(!v||parTag(v)!=='[object Object]')continue;W[k]=Object.assign({},v);if(k!=='tx'&&Object.prototype.hasOwnProperty.call(v,li))W[k][li]=structuredClone(v[li])}
+ return W}
+function parJob(S,X,job,r){parClean();WD=parCopy(S,job.li);txRegAll();__rs=job.seed|0;KC=true;CLM=false;
  const li=job.li,g=WD.lg[li],mine=li===WD.me.li,base=WD.txn||0;
  for(const [h,a] of g.fix[r-1]){if(mine&&(h===WD.me.ti||a===WD.me.ti))continue;const s=simMatch([g.teams[h].def,g.teams[a].def],false,lgMap(r));g.res.push({h,a,hs:s[0],as:s[1],rd:r})}
- return Object.assign({li,base},parDiff(S,SJ,WD,li))}
-if(self.__CSMW){self.onmessage=e=>{const m=e.data;if(m.t!=='day')return;try{const SJ=m.snap.lg.map(x=>JSON.stringify(x)),out=[];
-  for(const j of m.jobs){out.push(parJob(m.snap,SJ,j,m.r));self.postMessage({t:'p',id:m.id})}self.postMessage({t:'ok',id:m.id,out})}
- catch(err){self.postMessage({t:'err',id:m.id,msg:String(err&&err.stack||err)})}};self.postMessage({t:'ready'})}
+ return Object.assign({li,base},parDiff(S,X,WD,li))}
+if(self.__CSMW){const W0=WD;// trådens eget lille spil fra opstarten: sættes tilbage efter hver dag, så tråden ikke holder fast i en kopi af dit spil
+ self.onmessage=e=>{const m=e.data;if(m.t!=='day')return;try{const X=parPrep(m.snap);
+  for(const j of m.jobs){self.postMessage({t:'r',id:m.id,out:parJob(m.snap,X,j,m.r)});self.postMessage({t:'p',id:m.id})}
+  parClean();WD=W0;self.postMessage({t:'ok',id:m.id})}
+ catch(err){try{parClean();WD=W0}catch(x){}self.postMessage({t:'err',id:m.id,msg:String(err&&err.stack||err)})}};self.postMessage({t:'ready'})}
 /* --- i hovedtråden --- */
 function parRen(v,map){const f=s=>s.indexOf('x')<0?s:s.split('|').map(p=>map[p]||p).join('|');
  const t=parTag(v);if(typeof v==='string')return f(v);if(t==='[object Array]')return v.map(x=>parRen(x,map));
@@ -95,7 +124,12 @@ function parMerge(outs,sig){if(sig!==parSig()){PAR.why='spillet blev ændret und
  outs.sort((a,b)=>a.li-b.li);WD.tx=WD.tx||{};
  for(const o of outs){const map={},n0=o.base,n1=o.glob.txn!=null?o.glob.txn:n0;for(let k=n0+1;k<=n1;k++)map['x'+k]='x'+(++WD.txn);
   const rn=Object.keys(map).length?v=>parRen(v,map):v=>v,ids=[];
-  for(const id in (o.glob.tx||{})){const nid=map[id];if(!nid){PAR.why='taktik-id uden nummer';return false}WD.tx[nid]=rn(o.glob.tx[id]);ids.push(nid)}
+  for(const id in (o.glob.tx||{})){const nid=map[id];
+   if(!nid){/* gammel taktik hentet frem fra arkivet: beholder sit nummer. Har en tidligere liga samme dag allerede hentet den, er den der (som i den gamle rækkefølge), og tælleren rettes */
+    if(!/^x\d+$/.test(id)||+id.slice(1)>o.base){PAR.why='taktik-id uden nummer: '+id;return false}
+    if(WD.tx[id]){if((o.glob.num||{}).txRev)WD.txRev=(WD.txRev||0)-1;continue}
+    WD.tx[id]=rn(o.glob.tx[id]);ids.push(id);continue}
+   WD.tx[nid]=rn(o.glob.tx[id]);ids.push(nid)}
   ids.forEach(txReg);for(const k in o.glob.num||{})WD[k]=(WD[k]||0)+o.glob.num[k];
   for(const k in o.per){const v=rn(o.per[k].v);if(v===undefined){if(WD[k])delete WD[k][o.li]}else{WD[k]=WD[k]&&typeof WD[k]==='object'?WD[k]:{};WD[k][o.li]=v}}
   const g=WD.lg[o.li],ng=rn(o.lg),me=o.li===WD.me.li?WD.me.ti:-1;
@@ -115,7 +149,7 @@ function parRun(r,show,cb){parInit(ok=>{if(!ok)return cb(null);if(PAR.kill)PAR.k
   const to=setTimeout(()=>{PAR.why='tråd-timeout';fin(false)},15*60000);
   ws.forEach((w,i)=>{w.onerror=e=>{PAR.why='fejl i tråd: '+(e.message||'ukendt');if(e.preventDefault)e.preventDefault();fin(false)};
    w.onmessage=e=>{const m=e.data;if(!m||m.id!==id)return;if(m.t==='p'){st.done++;parProg()}
-    else if(m.t==='ok'){outs.push(...m.out);if(--left===0)fin(true)}else if(m.t==='err'){PAR.why='fejl i tråd: '+m.msg.split('\n')[0];fin(false)}};
+    else if(m.t==='r')outs.push(m.out);else if(m.t==='ok'){if(--left===0)fin(true)}else if(m.t==='err'){PAR.why='fejl i tråd: '+m.msg.split('\n')[0];fin(false)}};
    const part=jobs.filter((j,k)=>k%ws.length===i);try{w.postMessage({t:'day',id,r,snap:WD,jobs:part})}catch(e){PAR.why='kan ikke sende spillet til tråd: '+e.message;fin(false)}})})}
 function parProg(){const st=PAR.cur;if(!st||!st.show)return;try{$('nx').textContent=`Simulerer ${st.done}/24 · ${st.n} tråde`}catch(x){}}
 function parDay(r,cb){parRun(r,true,res=>{if(!res)return cb(false);const ok2=parMerge(res.outs,res.sig);if(ok2===null){PAR.retry=true;return cb(false)}cb(ok2)})}
@@ -126,7 +160,7 @@ function parPre(){try{if(PAR.bad||PAR.cur||BUSY||typeof Worker==='undefined'||!W
  const pf=PAR.pf={key:parKey(r),st:'run',res:null,cbs:[]};parRun(r,false,res=>{pf.st=res?'done':'fail';pf.res=res;const c=pf.cbs;pf.cbs=[];c.forEach(f=>f());if(!c.length)setTimeout(parPre,100)})}catch(e){console.warn('Forudberegning:',e)}}
 if(!self.__CSMW){const _sd=simDay;simDay=function(r,cl,done){if(!r||PAR.bad||typeof Worker==='undefined')return _sd(r,cl,done);
  const finish=()=>{KC=!!r;CLM=true;for(const x of cl){if(x.m.res||isMe(x.m.a)||isMe(x.m.b))continue;const s=simMatch([kdef(x.m.a),kdef(x.m.b)],x.m.nd!==false,x.m.map);x.m.res=[s[0],s[1]]}CLM=false;done()};
- const seq=()=>{if(PAR.why)console.warn('Tråde:',PAR.why);return _sd(r,cl,done)};
+ const seq=()=>{if(PAR.why)console.warn('Tråde:',PAR.why);if(PAR.bad&&PAR.ws){PAR.ws.forEach(w=>{try{w.terminate()}catch(x){}});PAR.ws=null}return _sd(r,cl,done)};
  const fresh=()=>{if(PAR.bad)return seq();try{$('nx').textContent='Simulerer i tråde…'}catch(x){}
   parDay(r,ok=>{if(!ok){if(PAR.retry)PAR.retry=false;else PAR.bad=true;return seq()}finish()})};
  const pf=PAR.pf;PAR.pf=null;
@@ -140,3 +174,20 @@ if(!self.__CSMW){const _sd=simDay;simDay=function(r,cl,done){if(!r||PAR.bad||typ
 function parStat(){if(typeof Worker==='undefined')return'Tråde: ikke understøttet her';if(PAR.bad)return'Tråde slået fra: '+(PAR.why||'ukendt grund');
  if(PAR.cur)return`Tråde: ${PAR.cur.n} i gang`+(PAR.cur.show?'':' (forudberegner)');if(PAR.ws)return`Tråde: ${PAR.ws.length} klar`+(PAR.pf&&PAR.pf.st==='done'?' · næste dag er regnet':'');return'Tråde: ikke startet endnu'}
 if(!self.__CSMW){setInterval(()=>{try{const n=$('nav');if(!n)return;let e=$('parst');if(!e){n.insertAdjacentHTML('beforeend','<div id="parst" style="font-size:10px;color:var(--mu);padding:6px 2px;text-align:center;line-height:1.25;overflow-wrap:anywhere"></div>');e=$('parst')}const t=parStat();if(e.textContent!==t)e.textContent=t}catch(x){}},1000)}
+/* løbende oprydning (14. nov.): en gang om ugen slettes AI-taktikker, som intet i spillet længere peger på
+ (typisk kandidater, der blev bygget og vurderet, men aldrig valgt). Forfædre til alt, der bruges, bevares, så arv af viden er uændret.
+ Statistik (tk, tu, tst, tls) røres ikke – kun taktikker uden nogen henvisning slettes, så kampene bliver præcis de samme. */
+function txPrune(){if(!WD||!WD.tx)return 0;const re=/^x\d+$/,ref=new Set(),seen=new Set(),tx=WD.tx;
+ const add=s=>{if(s.indexOf('|')<0){if(s.charCodeAt(0)===120&&re.test(s))ref.add(s)}else for(const p of s.split('|'))if(re.test(p))ref.add(p)};
+ const walk=o=>{if(o==null)return;const ty=typeof o;if(ty==='string')return add(o);if(ty!=='object'||seen.has(o))return;seen.add(o);
+  if(Array.isArray(o)){for(const v of o)walk(v);return}if(o instanceof Map){for(const[k,v]of o){walk(k);walk(v)}return}if(o instanceof Set){for(const v of o)walk(v);return}
+  for(const k in o){add(k);walk(o[k])}};
+ for(const k in WD)if(k!=='tx')walk(WD[k]);try{walk(MGR)}catch(e){}
+ const keep=new Set(),st=[...ref];while(st.length){const id=st.pop();if(keep.has(id)||!tx[id])continue;keep.add(id);const t=tx[id];if(t.p)st.push(t.p);if(t.va)st.push(t.va)}
+ let n=0;for(const id in tx)if(!keep.has(id)){const t=tx[id],m=MAPS[t.m];if(m&&m.tac)delete m.tac[id];delete STYLE[id];delete TSITE[id];delete CHASE[id];delete CHASE_PRE[id];TSTACK.delete(id);TXFB.delete(id);TXRC.delete(id);delete tx[id];n++}
+ if(n)for(const k in TXP){const a=k.split('|');if(re.test(a[1])&&!keep.has(a[1])||re.test(a[2])&&!keep.has(a[2]))delete TXP[k]}
+ return n}
+/* runde-typer: 'standard|' i d.tstB blev aldrig læst (samme tal som d.tst) – gamle poster fjernes */
+function txStdB(){if(!WD||!WD.lg)return;WD.lg.forEach(g=>g.teams.forEach(t=>{const B=t.def.tstB;if(B)for(const m in B)for(const k in B[m])if(k.startsWith('standard|'))delete B[m][k]}))}
+let TXPRQ=true;
+if(!self.__CSMW){const _ed=endDay;endDay=function(){const r=_ed.apply(this,arguments);try{if(WD&&WD.day%7===0)TXPRQ=true;if(TXPRQ&&WD&&!WD.over&&!PAR.cur&&!PAR.pf){TXPRQ=false;txStdB();txPrune()}}catch(e){console.error('txPrune',e)}return r}}
